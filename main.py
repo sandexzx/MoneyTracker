@@ -1025,10 +1025,15 @@ class ConsoleUI:
     def input_date(self, prompt):
         while True:
             try:
-                date_str = input(prompt + " (ГГГГ-ММ-ДД): ")
-                return datetime.datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
+                date_str = input(prompt + " (ДД.ММ.ГГ): ")
+                day, month, year = date_str.split('.')
+                # Конвертируем двузначный год в четырехзначный
+                if len(year) == 2:
+                    year = "20" + year
+                # Форматируем дату в формат ГГГГ-ММ-ДД для хранения в БД
+                return datetime.datetime.strptime(f"{year}-{month}-{day}", "%Y-%m-%d").strftime("%Y-%m-%d")
             except ValueError:
-                print("Неверный формат даты. Используйте ГГГГ-ММ-ДД")
+                print("Неверный формат даты. Используйте ДД.ММ.ГГ")
     
     def select_account(self, prompt="Выберите счёт:"):
         accounts = self.tracker.get_accounts()
