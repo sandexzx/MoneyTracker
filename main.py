@@ -517,10 +517,46 @@ class FinanceTracker:
             query += " WHERE p.completed = 0"
             
         self.cursor.execute(query)
-        return self.cursor.fetchall()
+        original_data = self.cursor.fetchall()
+        
+        # Если нужно только активные, создаем "виртуальные" ID
+        if only_active and original_data:
+            virtual_data = []
+            for idx, row in enumerate(original_data, 1):
+                # Сохраняем оригинальный ID в кортеже на первом месте, но возвращаем виртуальный ID
+                # Добавим оригинальный ID как последний элемент для внутреннего использования
+                real_id = row[0]
+                virtual_data.append((idx,) + row[1:] + (real_id,))
+            return virtual_data
+        
+        return original_data
     
     def update_planned_payment(self, payment_id, account_id=None, amount=None, description=None, category=None, planned_date=None):
         """Обновляет запланированный платеж"""
+        # Пробуем получить реальный ID из расширенного кортежа
+        if isinstance(payment_id, int):
+            self.cursor.execute(
+                "SELECT id FROM planned_payments WHERE id = ? AND completed = 0",
+                (payment_id,)
+            )
+            result = self.cursor.fetchone()
+            
+            if not result:
+                # Может быть, это виртуальный ID? Пробуем получить все активные платежи
+                payments = self.get_planned_payments(True)
+                
+                # Ищем платеж с нужным виртуальным ID
+                real_id = None
+                for p in payments:
+                    if p[0] == payment_id:
+                        real_id = p[-1]  # Последний элемент - реальный ID
+                        break
+                        
+                if real_id is None:
+                    return False, "Платеж не найден"
+                    
+                payment_id = real_id
+        
         self.cursor.execute(
             "SELECT account_id, amount, description, category, planned_date, completed FROM planned_payments WHERE id = ?",
             (payment_id,)
@@ -552,6 +588,30 @@ class FinanceTracker:
             return False, str(e)
     
     def execute_planned_payment(self, payment_id):
+        # Пробуем получить реальный ID из расширенного кортежа
+        if isinstance(payment_id, int):
+            self.cursor.execute(
+                "SELECT id FROM planned_payments WHERE id = ? AND completed = 0",
+                (payment_id,)
+            )
+            result = self.cursor.fetchone()
+            
+            if not result:
+                # Может быть, это виртуальный ID? Пробуем получить все активные платежи
+                payments = self.get_planned_payments(True)
+                
+                # Ищем платеж с нужным виртуальным ID
+                real_id = None
+                for p in payments:
+                    if p[0] == payment_id:
+                        real_id = p[-1]  # Последний элемент - реальный ID
+                        break
+                        
+                if real_id is None:
+                    return False, "Платеж не найден"
+                    
+                payment_id = real_id
+        
         self.cursor.execute(
             "SELECT account_id, amount, description, category, completed FROM planned_payments WHERE id = ?",
             (payment_id,)
@@ -596,6 +656,30 @@ class FinanceTracker:
             return False, str(e)
     
     def delete_planned_payment(self, payment_id):
+        # Пробуем получить реальный ID из расширенного кортежа
+        if isinstance(payment_id, int):
+            self.cursor.execute(
+                "SELECT id FROM planned_payments WHERE id = ? AND completed = 0",
+                (payment_id,)
+            )
+            result = self.cursor.fetchone()
+            
+            if not result:
+                # Может быть, это виртуальный ID? Пробуем получить все активные платежи
+                payments = self.get_planned_payments(True)
+                
+                # Ищем платеж с нужным виртуальным ID
+                real_id = None
+                for p in payments:
+                    if p[0] == payment_id:
+                        real_id = p[-1]  # Последний элемент - реальный ID
+                        break
+                        
+                if real_id is None:
+                    return False, "Платеж не найден"
+                    
+                payment_id = real_id
+                    
         self.cursor.execute("DELETE FROM planned_payments WHERE id = ?", (payment_id,))
         self.conn.commit()
         return True, "Запланированный платеж удален"
@@ -1758,7 +1842,13 @@ class ConsoleUI:
             print("📭 У вас пока нет запланированных платежей")
         else:
             for p in payments:
-                payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
+                if only_active:
+                    # Если только активные, у нас есть доп. элемент - real_id
+                    payment_id, account_id, account_name, amount, description, category, planned_date, completed, real_id = p
+                else:
+                    # Если все платежи, формат стандартный
+                    payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
+                    
                 status = "✅ Выполнен" if completed else "⏳ Ожидает"
                 date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
                 category_str = f"[{category}]" if category else ""
@@ -1800,7 +1890,7 @@ class ConsoleUI:
 
     def edit_planned_payment(self):
         self.print_header("РЕДАКТИРОВАНИЕ ЗАПЛАНИРОВАННОГО ПЛАТЕЖА")
-        payments = self.tracker.get_planned_payments(True)  # Только активные
+        payments = self.tracker.get_planned_payments(True)  # Только активные, с виртуальными ID
         
         if not payments:
             self.print_message("У вас нет активных запланированных платежей", False)
@@ -1808,25 +1898,21 @@ class ConsoleUI:
         
         print("Выберите платеж для редактирования:")
         for p in payments:
-            payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
+            payment_id, account_id, account_name, amount, description, category, planned_date, completed, real_id = p
             date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
             category_str = f"[{category}]" if category else ""
             print(f"{payment_id}. {description} {category_str} - {amount} ₽ с '{account_name}' (дата: {date})")
         
-        payment_id = int(self.input_number("Введите ID платежа: ", 1))
+        payment_id = int(self.input_number("Введите номер платежа: ", 1, len(payments)))
         
-        # Проверяем, что платеж существует и активен
+        # Находим выбранный платеж
         selected_payment = None
         for p in payments:
             if p[0] == payment_id:
                 selected_payment = p
                 break
         
-        if not selected_payment:
-            self.print_message("Платеж не найден или уже выполнен", False)
-            return
-        
-        payment_id, old_account_id, old_account_name, old_amount, old_description, old_category, old_planned_date, _ = selected_payment
+        payment_id, old_account_id, old_account_name, old_amount, old_description, old_category, old_planned_date, _, real_id = selected_payment
         
         print(f"\nРедактирование платежа: {old_description}")
         
@@ -1867,8 +1953,9 @@ class ConsoleUI:
             self.print_message("Редактирование отменено")
             return
         
+        # Используем реальный ID вместо виртуального
         success, message = self.tracker.update_planned_payment(
-            payment_id, 
+            real_id,  # Используем реальный ID из БД 
             account_id=new_account_id,
             amount=new_amount,
             description=new_description,
@@ -1888,7 +1975,8 @@ class ConsoleUI:
         
         print("Выберите платеж для выполнения:")
         for p in payments:
-            payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
+            # Учитываем, что в p теперь 9 элементов, а не 8
+            payment_id, account_id, account_name, amount, description, category, planned_date, completed, real_id = p
             date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
             category_str = f"[{category}]" if category else ""
             print(f"{payment_id}. {description} {category_str} - {amount} ₽ с '{account_name}' (дата: {date})")
@@ -1915,7 +2003,7 @@ class ConsoleUI:
     
     def delete_planned_payment(self):
         self.print_header("УДАЛЕНИЕ ЗАПЛАНИРОВАННОГО ПЛАТЕЖА")
-        payments = self.tracker.get_planned_payments(True)  # Только активные
+        payments = self.tracker.get_planned_payments(True)  # Только активные, с виртуальными ID
         
         if not payments:
             self.print_message("У вас нет активных запланированных платежей", False)
@@ -1923,17 +2011,32 @@ class ConsoleUI:
         
         print("Выберите платеж для удаления:")
         for p in payments:
-            payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
+            payment_id, account_id, account_name, amount, description, category, planned_date, completed, real_id = p
             date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
             print(f"{payment_id}. {description} - {amount} ₽ с '{account_name}' (дата: {date})")
         
-        payment_id = int(self.input_number("Введите ID платежа: ", 1))
+        payment_id = int(self.input_number("Введите номер платежа: ", 1, len(payments)))
+        
+        # Находим выбранный платеж по виртуальному ID
+        selected_payment = None
+        for p in payments:
+            if p[0] == payment_id:
+                selected_payment = p
+                break
+        
+        if not selected_payment:
+            self.print_message("Платеж не найден", False)
+            return
+        
+        # Получаем реальный ID из последнего элемента кортежа
+        real_id = selected_payment[-1]
         
         if not self.input_yes_no(f"Вы уверены, что хотите удалить этот запланированный платеж? (д/н): "):
             self.print_message("Удаление отменено")
             return
         
-        success, message = self.tracker.delete_planned_payment(payment_id)
+        # Используем реальный ID
+        success, message = self.tracker.delete_planned_payment(real_id)
         self.print_message(message, success)
     
     def reports_menu(self):
