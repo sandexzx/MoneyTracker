@@ -379,6 +379,7 @@ class FinanceTracker:
             return False, str(e)
     
     def process_recurring_payments(self):
+        self.print_header("ОБРАБОТКА АВТОПЛАТЕЖЕЙ")
         today = date.today()
         day_of_month = today.day
         
@@ -782,13 +783,13 @@ class ConsoleUI:
         self.clear_screen()
         width = 50
         print("=" * width)
-        print(f"{title.center(width)}")
+        print(f"✨ {title.center(width - 4)} ✨")
         print("=" * width)
     
     def print_message(self, message, success=True):
-        prefix = "✓" if success else "✗"
+        prefix = "✅" if success else "❌"
         print(f"\n{prefix} {message}")
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
     
     def input_number(self, prompt, min_value=None, max_value=None):
         while True:
@@ -831,13 +832,13 @@ class ConsoleUI:
     def main_menu(self):
         while self.running:
             self.print_header("ФИНАНСОВЫЙ ТРЕКЕР")
-            print("1. Управление счетами")
-            print("2. Доходы и расходы")
-            print("3. Переводы")
-            print("4. Регулярные платежи")
-            print("5. Запланированные платежи")
-            print("6. Отчёты и статистика")
-            print("0. Выход")
+            print("1. 💼 Управление счетами")
+            print("2. 💰 Доходы и расходы")
+            print("3. 🔄 Переводы")
+            print("4. 🔔 Регулярные платежи")
+            print("5. 📅 Запланированные платежи")
+            print("6. 📊 Отчёты и статистика")
+            print("0. 🚪 Выход")
             
             choice = self.input_number("Выберите пункт меню: ", 0, 6)
             
@@ -856,16 +857,16 @@ class ConsoleUI:
             elif choice == 0:
                 self.running = False
                 self.tracker.close()
-                print("До свидания!")
+                print("👋 До свидания!")
     
     def accounts_menu(self):
         while True:
             self.print_header("УПРАВЛЕНИЕ СЧЕТАМИ")
-            print("1. Просмотр всех счетов")
-            print("2. Создать новый счёт")
-            print("3. Редактировать счёт")
-            print("4. Удалить счёт")
-            print("0. Назад")
+            print("1. 👁️ Просмотр всех счетов")
+            print("2. ➕ Создать новый счёт")
+            print("3. ✏️ Редактировать счёт")
+            print("4. ❌ Удалить счёт")
+            print("0. 🔙 Назад")
             
             choice = self.input_number("Выберите пункт меню: ", 0, 4)
             
@@ -885,17 +886,29 @@ class ConsoleUI:
         accounts = self.tracker.get_accounts()
         
         if not accounts:
-            print("У вас пока нет счетов")
+            print("📭 У вас пока нет счетов")
         else:
             total_balance = 0
             for account in accounts:
                 total_balance += account[2]
-                print(f"{account[1]} ({account[3]}): {account[2]} ₽")
+                account_type_emoji = self.get_account_type_emoji(account[3])
+                print(f"{account_type_emoji} {account[1]} ({account[3]}): {account[2]} ₽")
             
             print("\n" + "-" * 30)
-            print(f"Общий баланс: {total_balance} ₽")
+            print(f"💵 Общий баланс: {total_balance} ₽")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
+
+    def get_account_type_emoji(self, account_type):
+        emoji_map = {
+            "Наличные": "💵",
+            "Дебетовая карта": "💳",
+            "Кредитная карта": "💳",
+            "Сберегательный счёт": "🏦",
+            "Инвестиции": "📈",
+            "Другое": "🔄"
+        }
+        return emoji_map.get(account_type, "💰")
     
     def create_account(self):
         self.print_header("СОЗДАНИЕ СЧЁТА")
@@ -982,12 +995,12 @@ class ConsoleUI:
     def transactions_menu(self):
         while True:
             self.print_header("ДОХОДЫ И РАСХОДЫ")
-            print("1. Добавить доход")
-            print("2. Добавить расход")
-            print("3. Просмотр операций")
-            print("4. Редактировать операцию")
-            print("5. Удалить операцию")
-            print("0. Назад")
+            print("1. 💸 Добавить доход")
+            print("2. 💳 Добавить расход")
+            print("3. 📋 Просмотр операций")
+            print("4. ✏️ Редактировать операцию")
+            print("5. ❌ Удалить операцию")
+            print("0. 🔙 Назад")
             
             choice = self.input_number("Выберите пункт меню: ", 0, 5)
             
@@ -1105,11 +1118,12 @@ class ConsoleUI:
         for t in transactions:
             amount = t[3]
             sign = "+" if amount > 0 else ""
+            emoji = "💰" if amount > 0 else "💸"
             category = f"[{t[5]}]" if t[5] else ""
             date = datetime.datetime.strptime(t[6], "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
-            print(f"{date} | {t[2]} | {sign}{amount} ₽ | {t[4]} {category}")
+            print(f"{date} | {t[2]} | {emoji} {sign}{amount} ₽ | {t[4]} {category}")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
 
     def select_transaction(self):
         self.print_header("ВЫБОР ОПЕРАЦИИ")
@@ -1238,9 +1252,9 @@ class ConsoleUI:
     def transfer_menu(self):
         while True:
             self.print_header("ПЕРЕВОДЫ МЕЖДУ СЧЕТАМИ")
-            print("1. Сделать перевод")
-            print("2. История переводов")
-            print("0. Назад")
+            print("1. 💸 Сделать перевод")
+            print("2. 📋 История переводов")
+            print("0. 🔙 Назад")
             
             choice = self.input_number("Выберите пункт меню: ", 0, 2)
             
@@ -1328,19 +1342,19 @@ class ConsoleUI:
             transfer_id, from_id, from_name, to_id, to_name, amount, description, date = t
             date_formatted = datetime.datetime.strptime(date, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
             desc = f" - {description}" if description else ""
-            print(f"{date_formatted} | {from_name} → {to_name} | {amount} ₽{desc}")
+            print(f"{date_formatted} | {from_name} 🔄 {to_name} | {amount} ₽{desc}")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
     
     def recurring_payments_menu(self):
         while True:
             self.print_header("РЕГУЛЯРНЫЕ ПЛАТЕЖИ")
-            print("1. Просмотр всех регулярных платежей")
-            print("2. Добавить регулярный платеж")
-            print("3. Изменить регулярный платеж")
-            print("4. Удалить регулярный платеж")
-            print("5. Проверить и выполнить автоплатежи")
-            print("0. Назад")
+            print("1. 👁️ Просмотр всех регулярных платежей")
+            print("2. ➕ Добавить регулярный платеж")
+            print("3. ✏️ Изменить регулярный платеж")
+            print("4. ❌ Удалить регулярный платеж")
+            print("5. 🔄 Проверить и выполнить автоплатежи")
+            print("0. 🔙 Назад")
             
             choice = self.input_number("Выберите пункт меню: ", 0, 5)
             
@@ -1362,15 +1376,15 @@ class ConsoleUI:
         payments = self.tracker.get_recurring_payments()
         
         if not payments:
-            print("У вас пока нет регулярных платежей")
+            print("📭 У вас пока нет регулярных платежей")
         else:
             for p in payments:
                 payment_id, account_id, account_name, amount, description, category, payment_day, active = p
-                status = "Активен" if active else "Отключен"
+                status = "✅ Активен" if active else "⛔ Отключен"
                 category_str = f"[{category}]" if category else ""
-                print(f"{payment_id}. {description} {category_str} - {amount} ₽ с '{account_name}' (день: {payment_day}) - {status}")
+                print(f"{payment_id}. 🔔 {description} {category_str} - {amount} ₽ с '{account_name}' (день: {payment_day}) - {status}")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
     
     def add_recurring_payment(self):
         self.print_header("ДОБАВЛЕНИЕ РЕГУЛЯРНОГО ПЛАТЕЖА")
@@ -1504,11 +1518,11 @@ class ConsoleUI:
     def planned_payments_menu(self):
         while True:
             self.print_header("ЗАПЛАНИРОВАННЫЕ ПЛАТЕЖИ")
-            print("1. Просмотр запланированных платежей")
-            print("2. Добавить запланированный платеж")
-            print("3. Выполнить платеж")
-            print("4. Удалить запланированный платеж")
-            print("0. Назад")
+            print("1. 👁️ Просмотр запланированных платежей")
+            print("2. ➕ Добавить запланированный платеж")
+            print("3. ✅ Выполнить платеж")
+            print("4. ❌ Удалить запланированный платеж")
+            print("0. 🔙 Назад")
             
             choice = self.input_number("Выберите пункт меню: ", 0, 4)
             
@@ -1527,8 +1541,8 @@ class ConsoleUI:
         self.print_header("СПИСОК ЗАПЛАНИРОВАННЫХ ПЛАТЕЖЕЙ")
         
         print("Отображать:")
-        print("1. Только активные")
-        print("2. Все, включая выполненные")
+        print("1. 📌 Только активные")
+        print("2. 📋 Все, включая выполненные")
         
         choice = self.input_number("Выберите вариант: ", 1, 2)
         only_active = choice == 1
@@ -1536,16 +1550,16 @@ class ConsoleUI:
         payments = self.tracker.get_planned_payments(only_active)
         
         if not payments:
-            print("У вас пока нет запланированных платежей")
+            print("📭 У вас пока нет запланированных платежей")
         else:
             for p in payments:
                 payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
-                status = "Выполнен" if completed else "Ожидает"
+                status = "✅ Выполнен" if completed else "⏳ Ожидает"
                 date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
                 category_str = f"[{category}]" if category else ""
-                print(f"{payment_id}. {description} {category_str} - {amount} ₽ с '{account_name}' (дата: {date}) - {status}")
+                print(f"{payment_id}. 📅 {description} {category_str} - {amount} ₽ с '{account_name}' (дата: {date}) - {status}")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
     
     def add_planned_payment(self):
         self.print_header("ДОБАВЛЕНИЕ ЗАПЛАНИРОВАННОГО ПЛАТЕЖА")
@@ -1640,19 +1654,19 @@ class ConsoleUI:
     def reports_menu(self):
         while True:
             self.print_header("ОТЧЁТЫ И СТАТИСТИКА")
-            print("1. Статистика по категориям расходов")
-            print("2. Ежемесячный отчёт")
-            print("3. Сравнительная статистика (день/неделя/месяц)") # Новый пункт меню!
-            print("0. Назад")
+            print("1. 📊 Статистика по категориям расходов")
+            print("2. 📅 Ежемесячный отчёт")
+            print("3. 📈 Сравнительная статистика (день/неделя/месяц)")
+            print("0. 🔙 Назад")
             
-            choice = self.input_number("Выберите отчёт: ", 0, 3)  # Обновляем диапазон выбора
+            choice = self.input_number("Выберите отчёт: ", 0, 3)
             
             if choice == 1:
                 self.category_report()
             elif choice == 2:
                 self.monthly_report()
             elif choice == 3:
-                self.comparative_stats()  # Новый метод
+                self.comparative_stats()
             elif choice == 0:
                 break
     
@@ -1714,13 +1728,35 @@ class ConsoleUI:
         
         for category, amount in summary:
             percent = abs(amount) / total_expense * 100 if total_expense else 0
+            emoji = self.get_category_emoji(category)
             # Используем абсолютное значение для вывода, так как расходы хранятся как отрицательные числа
-            print(f"{category:<20} {abs(amount):<10.2f} {percent:<10.2f}%")
+            print(f"{emoji} {category:<18} {abs(amount):<10.2f} {percent:<10.2f}%")
         
         print("-" * 40)
-        print(f"{'ИТОГО':<20} {total_expense:<10.2f} {'100.00':<10}%")
+        print(f"💰 {'ИТОГО':<18} {total_expense:<10.2f} {'100.00':<10}%")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
+        
+    def get_category_emoji(self, category):
+        emoji_map = {
+            "Продукты": "🍎",
+            "Кафе и рестораны": "🍽️",
+            "Транспорт": "🚗",
+            "Жилье": "🏠",
+            "Коммунальные услуги": "💡",
+            "Связь и интернет": "📱",
+            "Одежда": "👕",
+            "Развлечения": "🎮",
+            "Здоровье": "⚕️",
+            "Образование": "📚",
+            "Подписки": "📺",
+            "Кредит": "💳",
+            "Аренда": "🏢",
+            "Коммуналка": "💦",
+            "Связь": "📞",
+            "Страховка": "📝"
+        }
+        return emoji_map.get(category, "💸")
     
     def monthly_report(self):
         self.print_header("ЕЖЕМЕСЯЧНЫЙ ОТЧЁТ")
@@ -1758,21 +1794,24 @@ class ConsoleUI:
             total_income += income
             total_expense += expense
             
-            print(f"{month:<15} {income:<15.2f} {abs(expense):<15.2f} {balance:<15.2f}")
+            # Добавляем эмодзи в зависимости от баланса
+            balance_emoji = "📈" if balance > 0 else "📉" if balance < 0 else "⚖️"
+            print(f"{month:<15} {income:<15.2f} {abs(expense):<15.2f} {balance_emoji} {balance:<12.2f}")
         
         print("-" * 60)
         total_balance = total_income + total_expense  # expense уже отрицательный
-        print(f"{'ИТОГО':<15} {total_income:<15.2f} {abs(total_expense):<15.2f} {total_balance:<15.2f}")
+        balance_emoji = "📈" if total_balance > 0 else "📉" if total_balance < 0 else "⚖️"
+        print(f"{'ИТОГО':<15} {total_income:<15.2f} {abs(total_expense):<15.2f} {balance_emoji} {total_balance:<12.2f}")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
 
     def comparative_stats(self):
         while True:
             self.print_header("СРАВНИТЕЛЬНАЯ СТАТИСТИКА РАСХОДОВ")
-            print("1. По дням (сегодня vs вчера)")
-            print("2. По неделям (текущая vs предыдущая)")
-            print("3. По месяцам (текущий vs предыдущий)")
-            print("0. Назад")
+            print("1. 📆 По дням (сегодня vs вчера)")
+            print("2. 📆 По неделям (текущая vs предыдущая)")
+            print("3. 📆 По месяцам (текущий vs предыдущий)")
+            print("0. 🔙 Назад")
             
             choice = self.input_number("Выберите период: ", 0, 3)
             
@@ -1790,54 +1829,54 @@ class ConsoleUI:
         
         stats = self.tracker.get_day_comparison()
         
-        print(f"Расходы сегодня ({stats['today_date']}): {stats['today_expenses']:.2f} ₽")
-        print(f"Расходы вчера ({stats['yesterday_date']}): {stats['yesterday_expenses']:.2f} ₽")
+        print(f"💰 Расходы сегодня ({stats['today_date']}): {stats['today_expenses']:.2f} ₽")
+        print(f"💰 Расходы вчера ({stats['yesterday_date']}): {stats['yesterday_expenses']:.2f} ₽")
         print("-" * 40)
         
         if stats['percent_change'] > 0:
-            print(f"Сегодня вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем вчера")
+            print(f"📈 Сегодня вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем вчера")
         elif stats['percent_change'] < 0:
-            print(f"Сегодня вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем вчера")
+            print(f"📉 Сегодня вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем вчера")
         else:
-            print("Расходы не изменились")
+            print("📊 Расходы не изменились")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
 
     def show_week_comparison(self):
         self.print_header("СРАВНЕНИЕ РАСХОДОВ ПО НЕДЕЛЯМ")
         
         stats = self.tracker.get_week_comparison()
         
-        print(f"Расходы на этой неделе ({stats['current_week_start']} - {stats['current_week_end']}): {stats['current_week_expenses']:.2f} ₽")
-        print(f"Расходы на прошлой неделе ({stats['prev_week_start']} - {stats['prev_week_end']}): {stats['prev_week_expenses']:.2f} ₽")
+        print(f"📊 Расходы на этой неделе ({stats['current_week_start']} - {stats['current_week_end']}): {stats['current_week_expenses']:.2f} ₽")
+        print(f"📊 Расходы на прошлой неделе ({stats['prev_week_start']} - {stats['prev_week_end']}): {stats['prev_week_expenses']:.2f} ₽")
         print("-" * 40)
         
         if stats['percent_change'] > 0:
-            print(f"На этой неделе вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем на прошлой")
+            print(f"📈 На этой неделе вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем на прошлой")
         elif stats['percent_change'] < 0:
-            print(f"На этой неделе вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем на прошлой")
+            print(f"📉 На этой неделе вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем на прошлой")
         else:
-            print("Расходы не изменились")
+            print("⚖️ Расходы не изменились")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
 
     def show_month_comparison(self):
         self.print_header("СРАВНЕНИЕ РАСХОДОВ ПО МЕСЯЦАМ")
         
         stats = self.tracker.get_month_comparison()
         
-        print(f"Расходы в этом месяце ({stats['current_month']}): {stats['current_month_expenses']:.2f} ₽")
-        print(f"Расходы в прошлом месяце ({stats['prev_month']}): {stats['prev_month_expenses']:.2f} ₽")
+        print(f"📆 Расходы в этом месяце ({stats['current_month']}): {stats['current_month_expenses']:.2f} ₽")
+        print(f"📆 Расходы в прошлом месяце ({stats['prev_month']}): {stats['prev_month_expenses']:.2f} ₽")
         print("-" * 40)
         
         if stats['percent_change'] > 0:
-            print(f"В этом месяце вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем в прошлом")
+            print(f"📈 В этом месяце вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем в прошлом")
         elif stats['percent_change'] < 0:
-            print(f"В этом месяце вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем в прошлом")
+            print(f"📉 В этом месяце вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем в прошлом")
         else:
-            print("Расходы не изменились")
+            print("⚖️ Расходы не изменились")
         
-        input("\nНажмите Enter, чтобы продолжить...")
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
 
     def input_yes_no(self, prompt):
         """
@@ -1850,11 +1889,26 @@ class ConsoleUI:
             return True
         # В противном случае проверяем введённый ответ
         return response.lower() in ['д', 'y', 'да', 'yes']
-
+    
+    def display_welcome_emoji(self):
+        """Отображает приветственное эмоджи-сообщение при запуске"""
+        self.clear_screen()
+        print("""
+        💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰
+        💰                           💰
+        💰   ФИНАНСОВЫЙ ТРЕКЕР 2.0   💰
+        💰                           💰
+        💰💰💰💰💰💰💰💰💰💰💰💰💰💰💰
+        """)
+        print("              💵 🤑 💵")
+        print("           Контролируй")
+        print("            свои финансы!")
+        input("\n👉 Нажмите Enter, чтобы начать...")
 
 # Функция для запуска приложения
 def main():
     ui = ConsoleUI()
+    ui.display_welcome_emoji()
     ui.main_menu()
 
 
