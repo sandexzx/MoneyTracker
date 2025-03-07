@@ -602,13 +602,28 @@ class FinanceTracker:
         self.cursor.execute(query, params)
         return self.cursor.fetchall()
     
-    def get_category_summary(self, start_date=None, end_date=None):
-        query = """
-            SELECT category, SUM(amount) as total
-            FROM transactions
-            WHERE transaction_type = 'expense' AND amount < 0
+    def get_category_summary(self, start_date=None, end_date=None, transaction_type=None):
         """
+        Получает статистику по категориям для определенного типа транзакций
+        (expense, income) или для всех, если тип не указан
+        """
+        # Если тип не указан, используем все типы
+        if transaction_type is None:
+            query = """
+                SELECT category, transaction_type, SUM(amount) as total
+                FROM transactions
+                WHERE 1=1
+            """
+        else:
+            query = """
+                SELECT category, transaction_type, SUM(amount) as total
+                FROM transactions
+                WHERE transaction_type = ?
+            """
+        
         params = []
+        if transaction_type is not None:
+            params.append(transaction_type)
         
         if start_date:
             query += " AND DATE(transaction_date) >= DATE(?)"
@@ -618,7 +633,7 @@ class FinanceTracker:
             query += " AND DATE(transaction_date) <= DATE(?)"
             params.append(end_date)
         
-        query += " GROUP BY category ORDER BY total ASC"
+        query += " GROUP BY category, transaction_type ORDER BY total ASC"
         
         self.cursor.execute(query, params)
         return self.cursor.fetchall()
@@ -653,7 +668,7 @@ class FinanceTracker:
         return results
     
     def get_day_comparison(self):
-        """Сравнивает расходы за сегодня с расходами за вчера"""
+        """Сравнивает расходы и доходы за сегодня с расходами и доходами за вчера"""
         today = datetime.date.today()
         yesterday = today - datetime.timedelta(days=1)
         
@@ -673,22 +688,60 @@ class FinanceTracker:
         )
         yesterday_expenses = abs(self.cursor.fetchone()[0] or 0)
         
-        # Вычисляем процентное изменение
+        # Получаем доходы за сегодня
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'income' " +
+            "AND DATE(transaction_date) = DATE(?)",
+            (today.strftime("%Y-%m-%d"),)
+        )
+        today_income = self.cursor.fetchone()[0] or 0
+        
+        # Получаем доходы за вчера
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'income' " +
+            "AND DATE(transaction_date) = DATE(?)",
+            (yesterday.strftime("%Y-%m-%d"),)
+        )
+        yesterday_income = self.cursor.fetchone()[0] or 0
+        
+        # Вычисляем процентное изменение для расходов
         if yesterday_expenses == 0:
-            percent_change = 100 if today_expenses > 0 else 0
+            expense_percent_change = 100 if today_expenses > 0 else 0
         else:
-            percent_change = ((today_expenses - yesterday_expenses) / yesterday_expenses) * 100
+            expense_percent_change = ((today_expenses - yesterday_expenses) / yesterday_expenses) * 100
+        
+        # Вычисляем процентное изменение для доходов
+        if yesterday_income == 0:
+            income_percent_change = 100 if today_income > 0 else 0
+        else:
+            income_percent_change = ((today_income - yesterday_income) / yesterday_income) * 100
+        
+        # Вычисляем отношение расход/доход
+        today_ratio = (today_expenses / today_income) * 100 if today_income > 0 else float('inf')
+        yesterday_ratio = (yesterday_expenses / yesterday_income) * 100 if yesterday_income > 0 else float('inf')
+        
+        # Если обе величины конечны, вычисляем изменение
+        if today_ratio != float('inf') and yesterday_ratio != float('inf'):
+            ratio_percent_change = ((today_ratio - yesterday_ratio) / yesterday_ratio) * 100
+        else:
+            ratio_percent_change = 0
         
         return {
             'today_date': today.strftime("%d.%m.%Y"),
             'today_expenses': today_expenses,
+            'today_income': today_income,
+            'today_ratio': today_ratio if today_ratio != float('inf') else None,
             'yesterday_date': yesterday.strftime("%d.%m.%Y"),
             'yesterday_expenses': yesterday_expenses,
-            'percent_change': percent_change
+            'yesterday_income': yesterday_income,
+            'yesterday_ratio': yesterday_ratio if yesterday_ratio != float('inf') else None,
+            'expense_percent_change': expense_percent_change,
+            'income_percent_change': income_percent_change,
+            'ratio_percent_change': ratio_percent_change
         }
     
     def get_week_comparison(self):
-        """Сравнивает расходы за текущую неделю с предыдущей"""
+        """Сравнивает расходы и доходы за текущую неделю с предыдущей"""
         today = datetime.date.today()
         
         # Определяем начало и конец текущей недели (понедельник-воскресенье)
@@ -715,24 +768,62 @@ class FinanceTracker:
         )
         prev_week_expenses = abs(self.cursor.fetchone()[0] or 0)
         
-        # Вычисляем процентное изменение
+        # Получаем доходы за текущую неделю
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'income' " +
+            "AND DATE(transaction_date) BETWEEN DATE(?) AND DATE(?)",
+            (current_week_start.strftime("%Y-%m-%d"), current_week_end.strftime("%Y-%m-%d"))
+        )
+        current_week_income = self.cursor.fetchone()[0] or 0
+        
+        # Получаем доходы за предыдущую неделю
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'income' " +
+            "AND DATE(transaction_date) BETWEEN DATE(?) AND DATE(?)",
+            (prev_week_start.strftime("%Y-%m-%d"), prev_week_end.strftime("%Y-%m-%d"))
+        )
+        prev_week_income = self.cursor.fetchone()[0] or 0
+        
+        # Вычисляем процентное изменение для расходов
         if prev_week_expenses == 0:
-            percent_change = 100 if current_week_expenses > 0 else 0
+            expense_percent_change = 100 if current_week_expenses > 0 else 0
         else:
-            percent_change = ((current_week_expenses - prev_week_expenses) / prev_week_expenses) * 100
+            expense_percent_change = ((current_week_expenses - prev_week_expenses) / prev_week_expenses) * 100
+        
+        # Вычисляем процентное изменение для доходов
+        if prev_week_income == 0:
+            income_percent_change = 100 if current_week_income > 0 else 0
+        else:
+            income_percent_change = ((current_week_income - prev_week_income) / prev_week_income) * 100
+        
+        # Вычисляем отношение расход/доход
+        current_week_ratio = (current_week_expenses / current_week_income) * 100 if current_week_income > 0 else float('inf')
+        prev_week_ratio = (prev_week_expenses / prev_week_income) * 100 if prev_week_income > 0 else float('inf')
+        
+        # Если обе величины конечны, вычисляем изменение
+        if current_week_ratio != float('inf') and prev_week_ratio != float('inf'):
+            ratio_percent_change = ((current_week_ratio - prev_week_ratio) / prev_week_ratio) * 100
+        else:
+            ratio_percent_change = 0
         
         return {
             'current_week_start': current_week_start.strftime("%d.%m.%Y"),
             'current_week_end': current_week_end.strftime("%d.%m.%Y"),
             'current_week_expenses': current_week_expenses,
+            'current_week_income': current_week_income,
+            'current_week_ratio': current_week_ratio if current_week_ratio != float('inf') else None,
             'prev_week_start': prev_week_start.strftime("%d.%m.%Y"),
             'prev_week_end': prev_week_end.strftime("%d.%m.%Y"),
             'prev_week_expenses': prev_week_expenses,
-            'percent_change': percent_change
+            'prev_week_income': prev_week_income,
+            'prev_week_ratio': prev_week_ratio if prev_week_ratio != float('inf') else None,
+            'expense_percent_change': expense_percent_change,
+            'income_percent_change': income_percent_change,
+            'ratio_percent_change': ratio_percent_change
         }
     
     def get_month_comparison(self):
-        """Сравнивает расходы за текущий месяц с предыдущим"""
+        """Сравнивает расходы и доходы за текущий месяц с предыдущим"""
         today = datetime.date.today()
         
         # Определяем начало текущего месяца
@@ -764,18 +855,56 @@ class FinanceTracker:
         )
         prev_month_expenses = abs(self.cursor.fetchone()[0] or 0)
         
-        # Вычисляем процентное изменение
+        # Получаем доходы за текущий месяц
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'income' " +
+            "AND DATE(transaction_date) BETWEEN DATE(?) AND DATE(?)",
+            (current_month_start.strftime("%Y-%m-%d"), current_month_end.strftime("%Y-%m-%d"))
+        )
+        current_month_income = self.cursor.fetchone()[0] or 0
+        
+        # Получаем доходы за предыдущий месяц
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'income' " +
+            "AND DATE(transaction_date) BETWEEN DATE(?) AND DATE(?)",
+            (prev_month_start.strftime("%Y-%m-%d"), prev_month_end.strftime("%Y-%m-%d"))
+        )
+        prev_month_income = self.cursor.fetchone()[0] or 0
+        
+        # Вычисляем процентное изменение для расходов
         if prev_month_expenses == 0:
-            percent_change = 100 if current_month_expenses > 0 else 0
+            expense_percent_change = 100 if current_month_expenses > 0 else 0
         else:
-            percent_change = ((current_month_expenses - prev_month_expenses) / prev_month_expenses) * 100
+            expense_percent_change = ((current_month_expenses - prev_month_expenses) / prev_month_expenses) * 100
+        
+        # Вычисляем процентное изменение для доходов
+        if prev_month_income == 0:
+            income_percent_change = 100 if current_month_income > 0 else 0
+        else:
+            income_percent_change = ((current_month_income - prev_month_income) / prev_month_income) * 100
+        
+        # Вычисляем отношение расход/доход
+        current_month_ratio = (current_month_expenses / current_month_income) * 100 if current_month_income > 0 else float('inf')
+        prev_month_ratio = (prev_month_expenses / prev_month_income) * 100 if prev_month_income > 0 else float('inf')
+        
+        # Если обе величины конечны, вычисляем изменение
+        if current_month_ratio != float('inf') and prev_month_ratio != float('inf'):
+            ratio_percent_change = ((current_month_ratio - prev_month_ratio) / prev_month_ratio) * 100
+        else:
+            ratio_percent_change = 0
         
         return {
             'current_month': current_month_start.strftime("%B %Y"),
             'current_month_expenses': current_month_expenses,
+            'current_month_income': current_month_income,
+            'current_month_ratio': current_month_ratio if current_month_ratio != float('inf') else None,
             'prev_month': prev_month_start.strftime("%B %Y"),
             'prev_month_expenses': prev_month_expenses,
-            'percent_change': percent_change
+            'prev_month_income': prev_month_income,
+            'prev_month_ratio': prev_month_ratio if prev_month_ratio != float('inf') else None,
+            'expense_percent_change': expense_percent_change,
+            'income_percent_change': income_percent_change,
+            'ratio_percent_change': ratio_percent_change
         }
     
     # Методы для работы с категориями
@@ -1707,9 +1836,26 @@ class ConsoleUI:
                 break
     
     def category_report(self):
-        self.print_header("РАСХОДЫ ПО КАТЕГОРИЯМ")
+        self.print_header("РАСХОДЫ И ДОХОДЫ ПО КАТЕГОРИЯМ")
         
-        print("Выберите период:")
+        print("Выберите тип отчета:")
+        print("1. 💸 Только расходы")
+        print("2. 💰 Только доходы")
+        print("3. 🔄 Расходы и доходы")
+        
+        report_type_choice = self.input_number("Выберите вариант: ", 1, 3)
+        
+        transaction_type = None
+        if report_type_choice == 1:
+            transaction_type = "expense"
+            report_title = "РАСХОДЫ ПО КАТЕГОРИЯМ"
+        elif report_type_choice == 2:
+            transaction_type = "income"
+            report_title = "ДОХОДЫ ПО КАТЕГОРИЯМ"
+        else:
+            report_title = "РАСХОДЫ И ДОХОДЫ ПО КАТЕГОРИЯМ"
+        
+        print("\nВыберите период:")
         print("1. Текущий месяц")
         print("2. Предыдущий месяц")
         print("3. Текущий год")
@@ -1744,32 +1890,72 @@ class ConsoleUI:
             start_date = self.input_date("Введите начальную дату")
             end_date = self.input_date("Введите конечную дату")
         
-        summary = self.tracker.get_category_summary(start_date, end_date)
+        summary = self.tracker.get_category_summary(start_date, end_date, transaction_type)
         
         if not summary:
             self.print_message("Нет данных за выбранный период", False)
             return
         
-        self.print_header("РАСХОДЫ ПО КАТЕГОРИЯМ")
+        self.print_header(report_title)
         
-        # Вычисляем общую сумму расходов
-        total_expense = sum(abs(amount) for _, amount in summary)
+        # Группируем данные по типам транзакций
+        expense_data = []
+        income_data = []
         
-        # Сортируем по убыванию суммы (по модулю)
-        summary.sort(key=lambda x: abs(x[1]), reverse=True)
+        for category, trans_type, amount in summary:
+            if trans_type == "expense":
+                expense_data.append((category, amount))
+            else:
+                income_data.append((category, amount))
         
-        # Выводим таблицу
-        print(f"{'Категория':<20} {'Сумма':<10} {'Доля':<10}")
-        print("-" * 40)
+        # Вычисляем общие суммы
+        total_expense = sum(abs(amount) for _, amount in expense_data)
+        total_income = sum(amount for _, amount in income_data)
         
-        for category, amount in summary:
-            percent = abs(amount) / total_expense * 100 if total_expense else 0
-            emoji = self.get_category_emoji(category)
-            # Используем абсолютное значение для вывода, так как расходы хранятся как отрицательные числа
-            print(f"{emoji} {category:<18} {abs(amount):<10.2f} {percent:<10.2f}%")
+        # Выводим данные в зависимости от выбранного отчета
+        if report_type_choice in [1, 3] and expense_data:
+            print("\n💸 РАСХОДЫ:")
+            print(f"{'Категория':<20} {'Сумма':<10} {'Доля':<10}")
+            print("-" * 40)
+            
+            # Сортируем по убыванию суммы (по модулю)
+            expense_data.sort(key=lambda x: abs(x[1]), reverse=True)
+            
+            for category, amount in expense_data:
+                percent = abs(amount) / total_expense * 100 if total_expense else 0
+                emoji = self.get_category_emoji(category)
+                # Используем абсолютное значение для вывода, так как расходы хранятся как отрицательные числа
+                print(f"{emoji} {category:<18} {abs(amount):<10.2f} {percent:<10.2f}%")
+            
+            print("-" * 40)
+            print(f"💰 {'ИТОГО РАСХОДЫ':<18} {total_expense:<10.2f} {'100.00':<10}%")
         
-        print("-" * 40)
-        print(f"💰 {'ИТОГО':<18} {total_expense:<10.2f} {'100.00':<10}%")
+        if report_type_choice in [2, 3] and income_data:
+            if report_type_choice == 3:
+                print("\n")  # Разделитель между расходами и доходами
+                
+            print("\n💰 ДОХОДЫ:")
+            print(f"{'Категория':<20} {'Сумма':<10} {'Доля':<10}")
+            print("-" * 40)
+            
+            # Сортируем по убыванию суммы
+            income_data.sort(key=lambda x: x[1], reverse=True)
+            
+            for category, amount in income_data:
+                percent = amount / total_income * 100 if total_income else 0
+                emoji = self.get_category_emoji(category)
+                print(f"{emoji} {category:<18} {amount:<10.2f} {percent:<10.2f}%")
+            
+            print("-" * 40)
+            print(f"💰 {'ИТОГО ДОХОДЫ':<18} {total_income:<10.2f} {'100.00':<10}%")
+        
+        # Если отображаем оба типа, выводим соотношение
+        if report_type_choice == 3 and total_income > 0:
+            ratio = (total_expense / total_income) * 100
+            print("\n" + "-" * 40)
+            print(f"📊 Отношение расходы/доходы: {ratio:.2f}%")
+            direction = "💸" if ratio > 100 else "💰"
+            print(f"{direction} Вы {'тратите больше чем зарабатываете' if ratio > 100 else 'зарабатываете больше чем тратите'}")
         
         input("\n👉 Нажмите Enter, чтобы продолжить...")
         
@@ -1816,8 +2002,8 @@ class ConsoleUI:
         self.print_header(f"ОТЧЁТ ЗА {year} ГОД")
         
         # Выводим таблицу
-        print(f"{'Месяц':<15} {'Доходы':<15} {'Расходы':<15} {'Баланс':<15}")
-        print("-" * 60)
+        print(f"{'Месяц':<12} {'Доходы':<12} {'Расходы':<12} {'Баланс':<12} {'Расход/Доход':<12}")
+        print("-" * 65)
         
         total_income = 0
         total_expense = 0
@@ -1830,20 +2016,47 @@ class ConsoleUI:
             total_income += income
             total_expense += expense
             
+            # Вычисляем соотношение расход/доход
+            if income > 0:
+                ratio = (abs(expense) / income) * 100
+                ratio_str = f"{ratio:.1f}%"
+            else:
+                ratio_str = "∞"
+            
             # Добавляем эмодзи в зависимости от баланса
             balance_emoji = "📈" if balance > 0 else "📉" if balance < 0 else "⚖️"
-            print(f"{month:<15} {income:<15.2f} {abs(expense):<15.2f} {balance_emoji} {balance:<12.2f}")
+            print(f"{month:<12} {income:<12.2f} {abs(expense):<12.2f} {balance_emoji} {balance:<8.2f} {ratio_str:<12}")
         
-        print("-" * 60)
+        print("-" * 65)
         total_balance = total_income + total_expense  # expense уже отрицательный
         balance_emoji = "📈" if total_balance > 0 else "📉" if total_balance < 0 else "⚖️"
-        print(f"{'ИТОГО':<15} {total_income:<15.2f} {abs(total_expense):<15.2f} {balance_emoji} {total_balance:<12.2f}")
+        
+        # Вычисляем соотношение для итогов
+        if total_income > 0:
+            total_ratio = (abs(total_expense) / total_income) * 100
+            total_ratio_str = f"{total_ratio:.1f}%"
+        else:
+            total_ratio_str = "∞"
+        
+        print(f"{'ИТОГО':<12} {total_income:<12.2f} {abs(total_expense):<12.2f} {balance_emoji} {total_balance:<8.2f} {total_ratio_str:<12}")
+        
+        # Добавляем интерпретацию соотношения для общего результата
+        if total_income > 0:
+            print("\n💡 ИТОГОВАЯ ОЦЕНКА:")
+            if total_ratio < 50:
+                print("🔥 Супер! Вы тратите меньше половины доходов - отлично копите!")
+            elif total_ratio < 80:
+                print("👍 Хорошо! Ваши расходы меньше доходов - у вас здоровый бюджет.")
+            elif total_ratio < 100:
+                print("⚠️ Внимание! Вы тратите почти все свои доходы.")
+            else:
+                print("🚨 Тревога! Ваши расходы превышают доходы - бюджет в минусе!")
         
         input("\n👉 Нажмите Enter, чтобы продолжить...")
 
     def comparative_stats(self):
         while True:
-            self.print_header("СРАВНИТЕЛЬНАЯ СТАТИСТИКА РАСХОДОВ")
+            self.print_header("СРАВНИТЕЛЬНАЯ СТАТИСТИКА")
             print("1. 📆 По дням (сегодня vs вчера)")
             print("2. 📆 По неделям (текущая vs предыдущая)")
             print("3. 📆 По месяцам (текущий vs предыдущий)")
@@ -1861,56 +2074,187 @@ class ConsoleUI:
                 break
 
     def show_day_comparison(self):
-        self.print_header("СРАВНЕНИЕ РАСХОДОВ ПО ДНЯМ")
+        self.print_header("СРАВНЕНИЕ ПО ДНЯМ")
         
         stats = self.tracker.get_day_comparison()
         
-        print(f"💰 Расходы сегодня ({stats['today_date']}): {stats['today_expenses']:.2f} ₽")
-        print(f"💰 Расходы вчера ({stats['yesterday_date']}): {stats['yesterday_expenses']:.2f} ₽")
-        print("-" * 40)
+        print(f"💸 Расходы сегодня ({stats['today_date']}): {stats['today_expenses']:.2f} ₽")
+        print(f"💸 Расходы вчера ({stats['yesterday_date']}): {stats['yesterday_expenses']:.2f} ₽")
         
-        if stats['percent_change'] > 0:
-            print(f"📈 Сегодня вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем вчера")
-        elif stats['percent_change'] < 0:
-            print(f"📉 Сегодня вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем вчера")
+        if stats['expense_percent_change'] > 0:
+            print(f"📈 Сегодня вы потратили на {stats['expense_percent_change']:.2f}% БОЛЬШЕ, чем вчера")
+        elif stats['expense_percent_change'] < 0:
+            print(f"📉 Сегодня вы потратили на {abs(stats['expense_percent_change']):.2f}% МЕНЬШЕ, чем вчера")
         else:
-            print("📊 Расходы не изменились")
+            print("⚖️ Расходы не изменились")
+        
+        print("\n" + "-" * 40)
+        
+        print(f"💰 Доходы сегодня ({stats['today_date']}): {stats['today_income']:.2f} ₽")
+        print(f"💰 Доходы вчера ({stats['yesterday_date']}): {stats['yesterday_income']:.2f} ₽")
+        
+        if stats['income_percent_change'] > 0:
+            print(f"📈 Сегодня вы заработали на {stats['income_percent_change']:.2f}% БОЛЬШЕ, чем вчера")
+        elif stats['income_percent_change'] < 0:
+            print(f"📉 Сегодня вы заработали на {abs(stats['income_percent_change']):.2f}% МЕНЬШЕ, чем вчера")
+        else:
+            print("⚖️ Доходы не изменились")
+        
+        # Отображаем соотношение расход/доход
+        print("\n" + "-" * 40 + "\n")
+        print("📊 СООТНОШЕНИЕ РАСХОД/ДОХОД (в процентах):")
+        
+        if stats['today_ratio'] is not None:
+            print(f"Сегодня: {stats['today_ratio']:.2f}%")
+        else:
+            print("Сегодня: Нет доходов")
+            
+        if stats['yesterday_ratio'] is not None:
+            print(f"Вчера: {stats['yesterday_ratio']:.2f}%")
+        else:
+            print("Вчера: Нет доходов")
+        
+        if stats['today_ratio'] is not None and stats['yesterday_ratio'] is not None:
+            if stats['ratio_percent_change'] > 0:
+                print(f"📈 Сегодня соотношение увеличилось на {stats['ratio_percent_change']:.2f}%")
+            elif stats['ratio_percent_change'] < 0:
+                print(f"📉 Сегодня соотношение уменьшилось на {abs(stats['ratio_percent_change']):.2f}%")
+            else:
+                print("⚖️ Соотношение не изменилось")
         
         input("\n👉 Нажмите Enter, чтобы продолжить...")
 
     def show_week_comparison(self):
-        self.print_header("СРАВНЕНИЕ РАСХОДОВ ПО НЕДЕЛЯМ")
+        self.print_header("СРАВНЕНИЕ ПО НЕДЕЛЯМ")
         
         stats = self.tracker.get_week_comparison()
         
-        print(f"📊 Расходы на этой неделе ({stats['current_week_start']} - {stats['current_week_end']}): {stats['current_week_expenses']:.2f} ₽")
-        print(f"📊 Расходы на прошлой неделе ({stats['prev_week_start']} - {stats['prev_week_end']}): {stats['prev_week_expenses']:.2f} ₽")
-        print("-" * 40)
+        # Выводим информацию о расходах
+        print(f"💸 РАСХОДЫ:")
+        print(f"Текущая неделя ({stats['current_week_start']} - {stats['current_week_end']}): {stats['current_week_expenses']:.2f} ₽")
+        print(f"Прошлая неделя ({stats['prev_week_start']} - {stats['prev_week_end']}): {stats['prev_week_expenses']:.2f} ₽")
         
-        if stats['percent_change'] > 0:
-            print(f"📈 На этой неделе вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем на прошлой")
-        elif stats['percent_change'] < 0:
-            print(f"📉 На этой неделе вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем на прошлой")
+        if stats['expense_percent_change'] > 0:
+            print(f"📈 На этой неделе вы потратили на {stats['expense_percent_change']:.2f}% БОЛЬШЕ, чем на прошлой")
+        elif stats['expense_percent_change'] < 0:
+            print(f"📉 На этой неделе вы потратили на {abs(stats['expense_percent_change']):.2f}% МЕНЬШЕ, чем на прошлой")
         else:
             print("⚖️ Расходы не изменились")
+        
+        print("\n" + "-" * 40)
+        
+        # Выводим информацию о доходах
+        print(f"💰 ДОХОДЫ:")
+        print(f"Текущая неделя ({stats['current_week_start']} - {stats['current_week_end']}): {stats['current_week_income']:.2f} ₽")
+        print(f"Прошлая неделя ({stats['prev_week_start']} - {stats['prev_week_end']}): {stats['prev_week_income']:.2f} ₽")
+        
+        if stats['income_percent_change'] > 0:
+            print(f"📈 На этой неделе вы заработали на {stats['income_percent_change']:.2f}% БОЛЬШЕ, чем на прошлой")
+        elif stats['income_percent_change'] < 0:
+            print(f"📉 На этой неделе вы заработали на {abs(stats['income_percent_change']):.2f}% МЕНЬШЕ, чем на прошлой")
+        else:
+            print("⚖️ Доходы не изменились")
+        
+        # Отображаем соотношение расход/доход
+        print("\n" + "-" * 40 + "\n")
+        print("📊 СООТНОШЕНИЕ РАСХОД/ДОХОД (в процентах):")
+        
+        if stats['current_week_ratio'] is not None:
+            print(f"Текущая неделя: {stats['current_week_ratio']:.2f}%")
+        else:
+            print("Текущая неделя: Нет доходов")
+            
+        if stats['prev_week_ratio'] is not None:
+            print(f"Прошлая неделя: {stats['prev_week_ratio']:.2f}%")
+        else:
+            print("Прошлая неделя: Нет доходов")
+        
+        if stats['current_week_ratio'] is not None and stats['prev_week_ratio'] is not None:
+            if stats['ratio_percent_change'] > 0:
+                print(f"📈 На этой неделе соотношение увеличилось на {stats['ratio_percent_change']:.2f}%")
+            elif stats['ratio_percent_change'] < 0:
+                print(f"📉 На этой неделе соотношение уменьшилось на {abs(stats['ratio_percent_change']):.2f}%")
+            else:
+                print("⚖️ Соотношение не изменилось")
+        
+        # Интерпретация соотношения
+        if stats['current_week_ratio'] is not None:
+            print("\n💡 ИНТЕРПРЕТАЦИЯ:")
+            if stats['current_week_ratio'] < 50:
+                print("🔥 Супер! Вы тратите меньше половины доходов - отлично копите!")
+            elif stats['current_week_ratio'] < 80:
+                print("👍 Хорошо! Ваши расходы меньше доходов - у вас здоровый бюджет.")
+            elif stats['current_week_ratio'] < 100:
+                print("⚠️ Внимание! Вы тратите почти все свои доходы.")
+            else:
+                print("🚨 Тревога! Ваши расходы превышают доходы - бюджет в минусе!")
         
         input("\n👉 Нажмите Enter, чтобы продолжить...")
 
     def show_month_comparison(self):
-        self.print_header("СРАВНЕНИЕ РАСХОДОВ ПО МЕСЯЦАМ")
+        self.print_header("СРАВНЕНИЕ ПО МЕСЯЦАМ")
         
         stats = self.tracker.get_month_comparison()
         
-        print(f"📆 Расходы в этом месяце ({stats['current_month']}): {stats['current_month_expenses']:.2f} ₽")
-        print(f"📆 Расходы в прошлом месяце ({stats['prev_month']}): {stats['prev_month_expenses']:.2f} ₽")
-        print("-" * 40)
+        # Выводим информацию о расходах
+        print(f"💸 РАСХОДЫ:")
+        print(f"Текущий месяц ({stats['current_month']}): {stats['current_month_expenses']:.2f} ₽")
+        print(f"Прошлый месяц ({stats['prev_month']}): {stats['prev_month_expenses']:.2f} ₽")
         
-        if stats['percent_change'] > 0:
-            print(f"📈 В этом месяце вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем в прошлом")
-        elif stats['percent_change'] < 0:
-            print(f"📉 В этом месяце вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем в прошлом")
+        if stats['expense_percent_change'] > 0:
+            print(f"📈 В этом месяце вы потратили на {stats['expense_percent_change']:.2f}% БОЛЬШЕ, чем в прошлом")
+        elif stats['expense_percent_change'] < 0:
+            print(f"📉 В этом месяце вы потратили на {abs(stats['expense_percent_change']):.2f}% МЕНЬШЕ, чем в прошлом")
         else:
             print("⚖️ Расходы не изменились")
+        
+        print("\n" + "-" * 40)
+        
+        # Выводим информацию о доходах
+        print(f"💰 ДОХОДЫ:")
+        print(f"Текущий месяц ({stats['current_month']}): {stats['current_month_income']:.2f} ₽")
+        print(f"Прошлый месяц ({stats['prev_month']}): {stats['prev_month_income']:.2f} ₽")
+        
+        if stats['income_percent_change'] > 0:
+            print(f"📈 В этом месяце вы заработали на {stats['income_percent_change']:.2f}% БОЛЬШЕ, чем в прошлом")
+        elif stats['income_percent_change'] < 0:
+            print(f"📉 В этом месяце вы заработали на {abs(stats['income_percent_change']):.2f}% МЕНЬШЕ, чем в прошлом")
+        else:
+            print("⚖️ Доходы не изменились")
+        
+        # Отображаем соотношение расход/доход
+        print("\n" + "-" * 40 + "\n")
+        print("📊 СООТНОШЕНИЕ РАСХОД/ДОХОД (в процентах):")
+        
+        if stats['current_month_ratio'] is not None:
+            print(f"Текущий месяц: {stats['current_month_ratio']:.2f}%")
+        else:
+            print("Текущий месяц: Нет доходов")
+            
+        if stats['prev_month_ratio'] is not None:
+            print(f"Прошлый месяц: {stats['prev_month_ratio']:.2f}%")
+        else:
+            print("Прошлый месяц: Нет доходов")
+        
+        if stats['current_month_ratio'] is not None and stats['prev_month_ratio'] is not None:
+            if stats['ratio_percent_change'] > 0:
+                print(f"📈 В этом месяце соотношение увеличилось на {stats['ratio_percent_change']:.2f}%")
+            elif stats['ratio_percent_change'] < 0:
+                print(f"📉 В этом месяце соотношение уменьшилось на {abs(stats['ratio_percent_change']):.2f}%")
+            else:
+                print("⚖️ Соотношение не изменилось")
+        
+        # Интерпретация соотношения
+        if stats['current_month_ratio'] is not None:
+            print("\n💡 ИНТЕРПРЕТАЦИЯ:")
+            if stats['current_month_ratio'] < 50:
+                print("🔥 Супер! Вы тратите меньше половины доходов - отлично копите!")
+            elif stats['current_month_ratio'] < 80:
+                print("👍 Хорошо! Ваши расходы меньше доходов - у вас здоровый бюджет.")
+            elif stats['current_month_ratio'] < 100:
+                print("⚠️ Внимание! Вы тратите почти все свои доходы.")
+            else:
+                print("🚨 Тревога! Ваши расходы превышают доходы - бюджет в минусе!")
         
         input("\n👉 Нажмите Enter, чтобы продолжить...")
 
