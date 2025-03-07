@@ -95,6 +95,15 @@ class FinanceTracker:
             FOREIGN KEY (to_account_id) REFERENCES accounts (id)
         )
         ''')
+
+        # Создаем таблицу категорий
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS expense_categories (
+            id INTEGER PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
         
         self.conn.commit()
     
@@ -768,6 +777,53 @@ class FinanceTracker:
             'prev_month_expenses': prev_month_expenses,
             'percent_change': percent_change
         }
+    
+    # Методы для работы с категориями
+    def get_categories(self):
+        self.cursor.execute("SELECT id, name FROM expense_categories ORDER BY name")
+        return self.cursor.fetchall()
+
+    def add_category(self, name):
+        try:
+            self.cursor.execute(
+                "INSERT INTO expense_categories (name) VALUES (?)",
+                (name,)
+            )
+            self.conn.commit()
+            return True, "Категория успешно добавлена"
+        except sqlite3.IntegrityError:
+            return False, "Категория с таким названием уже существует"
+        except Exception as e:
+            return False, str(e)
+
+    def update_category(self, category_id, new_name):
+        try:
+            self.cursor.execute(
+                "UPDATE expense_categories SET name = ? WHERE id = ?",
+                (new_name, category_id)
+            )
+            self.conn.commit()
+            return True, "Категория успешно обновлена"
+        except sqlite3.IntegrityError:
+            return False, "Категория с таким названием уже существует"
+        except Exception as e:
+            return False, str(e)
+
+    def delete_category(self, category_id):
+        try:
+            self.cursor.execute("DELETE FROM expense_categories WHERE id = ?", (category_id,))
+            self.conn.commit()
+            return True, "Категория успешно удалена"
+        except Exception as e:
+            return False, str(e)
+
+    def get_category_by_id(self, category_id):
+        self.cursor.execute("SELECT id, name FROM expense_categories WHERE id = ?", (category_id,))
+        return self.cursor.fetchone()
+
+    def get_category_by_name(self, name):
+        self.cursor.execute("SELECT id, name FROM expense_categories WHERE name = ?", (name,))
+        return self.cursor.fetchone()
 
 
 # Класс для управления интерфейсом
@@ -838,9 +894,10 @@ class ConsoleUI:
             print("4. 🔔 Регулярные платежи")
             print("5. 📅 Запланированные платежи")
             print("6. 📊 Отчёты и статистика")
+            print("7. 🏷️ Управление категориями") 
             print("0. 🚪 Выход")
             
-            choice = self.input_number("Выберите пункт меню: ", 0, 6)
+            choice = self.input_number("Выберите пункт меню: ", 0, 7)  # Обновляем диапазон
             
             if choice == 1:
                 self.accounts_menu()
@@ -854,6 +911,8 @@ class ConsoleUI:
                 self.planned_payments_menu()
             elif choice == 6:
                 self.reports_menu()
+            elif choice == 7:
+                self.categories_menu()  # Вызываем новый метод
             elif choice == 0:
                 self.running = False
                 self.tracker.close()
@@ -1027,18 +1086,7 @@ class ConsoleUI:
         amount = self.input_number("Введите сумму дохода: ", 0.01)
         description = input("Введите описание: ")
         
-        # Список категорий дохода
-        categories = ["Зарплата", "Подработка", "Подарок", "Инвестиции", "Другое"]
-        print("\nКатегории доходов:")
-        for i, category in enumerate(categories, 1):
-            print(f"{i}. {category}")
-            
-        cat_choice = input("Выберите категорию (или введите свою): ")
-        
-        try:
-            category = categories[int(cat_choice) - 1]
-        except (ValueError, IndexError):
-            category = cat_choice
+        category = self.select_category("Выберите категорию дохода:")
         
         success, message = self.tracker.add_income(account_id, amount, description, category)
         self.print_message(message, success)
@@ -1053,23 +1101,7 @@ class ConsoleUI:
         amount = self.input_number("Введите сумму расхода: ", 0.01)
         description = input("Введите описание: ")
         
-        # Список категорий расходов
-        categories = [
-            "Продукты", "Кафе и рестораны", "Транспорт", "Жилье", 
-            "Коммунальные услуги", "Связь и интернет", "Одежда", 
-            "Развлечения", "Здоровье", "Образование", "Другое"
-        ]
-        
-        print("\nКатегории расходов:")
-        for i, category in enumerate(categories, 1):
-            print(f"{i}. {category}")
-            
-        cat_choice = input("Выберите категорию (или введите свою): ")
-        
-        try:
-            category = categories[int(cat_choice) - 1]
-        except (ValueError, IndexError):
-            category = cat_choice
+        category = self.select_category("Выберите категорию расхода:")
         
         success, message = self.tracker.add_expense(account_id, amount, description, category)
         self.print_message(message, success)
@@ -1192,8 +1224,12 @@ class ConsoleUI:
         if not new_description:
             new_description = None
         
-        new_category = input(f"Введите новую категорию (или оставьте пустым): ")
-        if not new_category:
+        # Заменяем запрос новой категории на выбор из списка
+        print("Текущая категория:", category if category else "Не указана")
+        change_category = input("Изменить категорию? (д/н): ")
+        if change_category.lower() in ['д', 'y', 'да', 'yes']:
+            new_category = self.select_category("Выберите новую категорию:")
+        else:
             new_category = None
         
         # Подтверждение
@@ -1904,6 +1940,135 @@ class ConsoleUI:
         print("             Контролируй")
         print("            свои финансы!")
         input("\n  👉 Нажмите Enter, чтобы начать...")
+
+    def categories_menu(self):
+        while True:
+            self.print_header("УПРАВЛЕНИЕ КАТЕГОРИЯМИ")
+            print("1. 👁️ Просмотр категорий")
+            print("2. ➕ Добавить категорию")
+            print("3. ✏️ Редактировать категорию")
+            print("4. ❌ Удалить категорию")
+            print("0. 🔙 Назад")
+            
+            choice = self.input_number("Выберите пункт меню: ", 0, 4)
+            
+            if choice == 1:
+                self.show_categories()
+            elif choice == 2:
+                self.add_category()
+            elif choice == 3:
+                self.edit_category()
+            elif choice == 4:
+                self.delete_category()
+            elif choice == 0:
+                break
+
+    def show_categories(self):
+        self.print_header("СПИСОК КАТЕГОРИЙ")
+        categories = self.tracker.get_categories()
+        
+        if not categories:
+            print("📭 У вас пока нет категорий")
+        else:
+            for cat in categories:
+                cat_id, name = cat
+                print(f"{cat_id}. {name}")
+        
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
+
+    def add_category(self):
+        self.print_header("ДОБАВЛЕНИЕ КАТЕГОРИИ")
+        name = input("Введите название категории: ")
+        
+        if not name:
+            self.print_message("Название категории не может быть пустым", False)
+            return
+        
+        success, message = self.tracker.add_category(name)
+        self.print_message(message, success)
+
+    def edit_category(self):
+        self.print_header("РЕДАКТИРОВАНИЕ КАТЕГОРИИ")
+        categories = self.tracker.get_categories()
+        
+        if not categories:
+            self.print_message("У вас пока нет категорий", False)
+            return
+        
+        print("Выберите категорию для редактирования:")
+        for cat in categories:
+            cat_id, name = cat
+            print(f"{cat_id}. {name}")
+        
+        category_id = int(self.input_number("Введите ID категории: ", 1))
+        
+        # Проверяем, существует ли категория
+        selected_category = self.tracker.get_category_by_id(category_id)
+        if not selected_category:
+            self.print_message("Категория не найдена", False)
+            return
+        
+        new_name = input(f"Введите новое название (текущее: {selected_category[1]}): ")
+        
+        if not new_name:
+            self.print_message("Название категории не может быть пустым", False)
+            return
+        
+        success, message = self.tracker.update_category(category_id, new_name)
+        self.print_message(message, success)
+
+    def delete_category(self):
+        self.print_header("УДАЛЕНИЕ КАТЕГОРИИ")
+        categories = self.tracker.get_categories()
+        
+        if not categories:
+            self.print_message("У вас пока нет категорий", False)
+            return
+        
+        print("Выберите категорию для удаления:")
+        for cat in categories:
+            cat_id, name = cat
+            print(f"{cat_id}. {name}")
+        
+        category_id = int(self.input_number("Введите ID категории: ", 1))
+        
+        # Проверяем, существует ли категория
+        selected_category = self.tracker.get_category_by_id(category_id)
+        if not selected_category:
+            self.print_message("Категория не найдена", False)
+            return
+        
+        if not self.input_yes_no(f"Вы уверены, что хотите удалить категорию '{selected_category[1]}'? (д/н): "):
+            self.print_message("Удаление отменено")
+            return
+        
+        success, message = self.tracker.delete_category(category_id)
+        self.print_message(message, success)
+
+    def select_category(self, prompt="Выберите категорию:"):
+        categories = self.tracker.get_categories()
+        if not categories:
+            print("Нет доступных категорий")
+            return None
+        
+        print(prompt)
+        for i, category in enumerate(categories, 1):
+            print(f"{i}. {category[1]}")
+        print("0. Ввести новую категорию")
+        
+        choice = self.input_number("Введите номер категории: ", 0, len(categories))
+        
+        if choice == 0:
+            new_category = input("Введите название новой категории: ")
+            if new_category:
+                success, _ = self.tracker.add_category(new_category)
+                if success:
+                    category = self.tracker.get_category_by_name(new_category)
+                    return category[1] if category else new_category
+                return new_category
+            return ""
+        
+        return categories[int(choice) - 1][1]  # Возвращаем название выбранной категории
 
 # Функция для запуска приложения
 def main():
