@@ -654,10 +654,13 @@ class ConsoleUI:
         print(prompt)
         for i, account in enumerate(accounts, 1):
             print(f"{i}. {account[1]} ({account[2]} ₽) - {account[3]}")
+        print("0. Назад")  # Добавляем опцию возврата
         
-        choice = self.input_number("Введите номер счёта: ", 1, len(accounts))
+        choice = self.input_number("Введите номер счёта: ", 0, len(accounts))  # Разрешаем 0
+        if choice == 0:  # Проверяем, выбрал ли пользователь опцию выхода
+            return 0
         return accounts[int(choice) - 1][0]  # Возвращаем ID выбранного счёта
-    
+        
     def main_menu(self):
         while self.running:
             self.print_header("ФИНАНСОВЫЙ ТРЕКЕР")
@@ -1077,8 +1080,11 @@ class ConsoleUI:
             self.print_message("Для перевода нужно минимум два счёта", False)
             return
         
+        # Передаем промпт с указанием возможности выйти
         from_account_id = self.select_account("Выберите счёт откуда:")
-        if not from_account_id:
+        if from_account_id == 0:  # Проверяем, был ли выбран выход
+            return
+        if not from_account_id:  # Если нет счетов
             return
         
         # Фильтруем список счетов, исключая выбранный
@@ -1087,11 +1093,20 @@ class ConsoleUI:
         print("\nВыберите счёт куда:")
         for i, account in enumerate(filtered_accounts, 1):
             print(f"{i}. {account[1]} ({account[2]} ₽) - {account[3]}")
+        print("0. Назад")  # Добавляем опцию выхода
         
-        choice = self.input_number("Введите номер счёта: ", 1, len(filtered_accounts))
+        choice = self.input_number("Введите номер счёта: ", 0, len(filtered_accounts))
+        if choice == 0:  # Если выбран выход
+            return
+        
         to_account_id = filtered_accounts[int(choice) - 1][0]
         
-        amount = self.input_number("Введите сумму перевода: ", 0.01)
+        print("\nВведите сумму перевода (или 0 для отмены):")
+        amount = self.input_number("Сумма: ", 0)
+        if amount == 0:  # Если пользователь хочет отменить операцию
+            self.print_message("Перевод отменен")
+            return
+            
         description = input("Введите описание (необязательно): ")
         
         success, message = self.tracker.transfer_money(from_account_id, to_account_id, amount, description)
