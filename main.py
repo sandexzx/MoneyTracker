@@ -16,8 +16,9 @@ except:
 # Создаем класс для работы с базой данных
 class FinanceTracker:
     def __init__(self):
-        # Проверяем существование директории для данных
-        data_dir = os.path.expanduser("~/storage/shared/finance_tracker")
+        # Используем текущую директорию запуска скрипта
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(script_dir, "finance_tracker")
         if not os.path.exists(data_dir):
             os.makedirs(data_dir)
             
