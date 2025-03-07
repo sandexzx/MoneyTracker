@@ -3,6 +3,15 @@ import sqlite3
 import datetime
 from datetime import date
 import calendar
+import locale
+
+try:
+    locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
+except:
+    try:
+        locale.setlocale(locale.LC_TIME, 'Russian_Russia.1251')
+    except:
+        pass  # Если не удалось установить русскую локаль, оставляем по умолчанию
 
 # Создаем класс для работы с базой данных
 class FinanceTracker:
@@ -631,6 +640,132 @@ class FinanceTracker:
             results.append((month_name, income, expense, income + expense))
             
         return results
+    
+    def get_day_comparison(self):
+        """Сравнивает расходы за сегодня с расходами за вчера"""
+        today = datetime.date.today()
+        yesterday = today - datetime.timedelta(days=1)
+        
+        # Получаем расходы за сегодня
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'expense' " +
+            "AND DATE(transaction_date) = DATE(?)",
+            (today.strftime("%Y-%m-%d"),)
+        )
+        today_expenses = abs(self.cursor.fetchone()[0] or 0)
+        
+        # Получаем расходы за вчера
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'expense' " +
+            "AND DATE(transaction_date) = DATE(?)",
+            (yesterday.strftime("%Y-%m-%d"),)
+        )
+        yesterday_expenses = abs(self.cursor.fetchone()[0] or 0)
+        
+        # Вычисляем процентное изменение
+        if yesterday_expenses == 0:
+            percent_change = 100 if today_expenses > 0 else 0
+        else:
+            percent_change = ((today_expenses - yesterday_expenses) / yesterday_expenses) * 100
+        
+        return {
+            'today_date': today.strftime("%d.%m.%Y"),
+            'today_expenses': today_expenses,
+            'yesterday_date': yesterday.strftime("%d.%m.%Y"),
+            'yesterday_expenses': yesterday_expenses,
+            'percent_change': percent_change
+        }
+    
+    def get_week_comparison(self):
+        """Сравнивает расходы за текущую неделю с предыдущей"""
+        today = datetime.date.today()
+        
+        # Определяем начало и конец текущей недели (понедельник-воскресенье)
+        current_week_start = today - datetime.timedelta(days=today.weekday())
+        current_week_end = today
+        
+        # Определяем начало и конец предыдущей недели
+        prev_week_start = current_week_start - datetime.timedelta(days=7)
+        prev_week_end = current_week_start - datetime.timedelta(days=1)
+        
+        # Получаем расходы за текущую неделю
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'expense' " +
+            "AND DATE(transaction_date) BETWEEN DATE(?) AND DATE(?)",
+            (current_week_start.strftime("%Y-%m-%d"), current_week_end.strftime("%Y-%m-%d"))
+        )
+        current_week_expenses = abs(self.cursor.fetchone()[0] or 0)
+        
+        # Получаем расходы за предыдущую неделю
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'expense' " +
+            "AND DATE(transaction_date) BETWEEN DATE(?) AND DATE(?)",
+            (prev_week_start.strftime("%Y-%m-%d"), prev_week_end.strftime("%Y-%m-%d"))
+        )
+        prev_week_expenses = abs(self.cursor.fetchone()[0] or 0)
+        
+        # Вычисляем процентное изменение
+        if prev_week_expenses == 0:
+            percent_change = 100 if current_week_expenses > 0 else 0
+        else:
+            percent_change = ((current_week_expenses - prev_week_expenses) / prev_week_expenses) * 100
+        
+        return {
+            'current_week_start': current_week_start.strftime("%d.%m.%Y"),
+            'current_week_end': current_week_end.strftime("%d.%m.%Y"),
+            'current_week_expenses': current_week_expenses,
+            'prev_week_start': prev_week_start.strftime("%d.%m.%Y"),
+            'prev_week_end': prev_week_end.strftime("%d.%m.%Y"),
+            'prev_week_expenses': prev_week_expenses,
+            'percent_change': percent_change
+        }
+    
+    def get_month_comparison(self):
+        """Сравнивает расходы за текущий месяц с предыдущим"""
+        today = datetime.date.today()
+        
+        # Определяем начало текущего месяца
+        current_month_start = today.replace(day=1)
+        current_month_end = today
+        
+        # Определяем начало и конец предыдущего месяца
+        if current_month_start.month == 1:
+            prev_month_start = current_month_start.replace(year=current_month_start.year-1, month=12, day=1)
+        else:
+            prev_month_start = current_month_start.replace(month=current_month_start.month-1, day=1)
+        
+        # Последний день предыдущего месяца
+        prev_month_end = current_month_start - datetime.timedelta(days=1)
+        
+        # Получаем расходы за текущий месяц
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'expense' " +
+            "AND DATE(transaction_date) BETWEEN DATE(?) AND DATE(?)",
+            (current_month_start.strftime("%Y-%m-%d"), current_month_end.strftime("%Y-%m-%d"))
+        )
+        current_month_expenses = abs(self.cursor.fetchone()[0] or 0)
+        
+        # Получаем расходы за предыдущий месяц
+        self.cursor.execute(
+            "SELECT SUM(amount) FROM transactions WHERE transaction_type = 'expense' " +
+            "AND DATE(transaction_date) BETWEEN DATE(?) AND DATE(?)",
+            (prev_month_start.strftime("%Y-%m-%d"), prev_month_end.strftime("%Y-%m-%d"))
+        )
+        prev_month_expenses = abs(self.cursor.fetchone()[0] or 0)
+        
+        # Вычисляем процентное изменение
+        if prev_month_expenses == 0:
+            percent_change = 100 if current_month_expenses > 0 else 0
+        else:
+            percent_change = ((current_month_expenses - prev_month_expenses) / prev_month_expenses) * 100
+        
+        return {
+            'current_month': current_month_start.strftime("%B %Y"),
+            'current_month_expenses': current_month_expenses,
+            'prev_month': prev_month_start.strftime("%B %Y"),
+            'prev_month_expenses': prev_month_expenses,
+            'percent_change': percent_change
+        }
 
 
 # Класс для управления интерфейсом
@@ -1516,14 +1651,17 @@ class ConsoleUI:
             self.print_header("ОТЧЁТЫ И СТАТИСТИКА")
             print("1. Статистика по категориям расходов")
             print("2. Ежемесячный отчёт")
+            print("3. Сравнительная статистика (день/неделя/месяц)") # Новый пункт меню!
             print("0. Назад")
             
-            choice = self.input_number("Выберите отчёт: ", 0, 2)
+            choice = self.input_number("Выберите отчёт: ", 0, 3)  # Обновляем диапазон выбора
             
             if choice == 1:
                 self.category_report()
             elif choice == 2:
                 self.monthly_report()
+            elif choice == 3:
+                self.comparative_stats()  # Новый метод
             elif choice == 0:
                 break
     
@@ -1634,6 +1772,79 @@ class ConsoleUI:
         print("-" * 60)
         total_balance = total_income + total_expense  # expense уже отрицательный
         print(f"{'ИТОГО':<15} {total_income:<15.2f} {abs(total_expense):<15.2f} {total_balance:<15.2f}")
+        
+        input("\nНажмите Enter, чтобы продолжить...")
+
+    def comparative_stats(self):
+        while True:
+            self.print_header("СРАВНИТЕЛЬНАЯ СТАТИСТИКА РАСХОДОВ")
+            print("1. По дням (сегодня vs вчера)")
+            print("2. По неделям (текущая vs предыдущая)")
+            print("3. По месяцам (текущий vs предыдущий)")
+            print("0. Назад")
+            
+            choice = self.input_number("Выберите период: ", 0, 3)
+            
+            if choice == 1:
+                self.show_day_comparison()
+            elif choice == 2:
+                self.show_week_comparison()
+            elif choice == 3:
+                self.show_month_comparison()
+            elif choice == 0:
+                break
+
+    def show_day_comparison(self):
+        self.print_header("СРАВНЕНИЕ РАСХОДОВ ПО ДНЯМ")
+        
+        stats = self.tracker.get_day_comparison()
+        
+        print(f"Расходы сегодня ({stats['today_date']}): {stats['today_expenses']:.2f} ₽")
+        print(f"Расходы вчера ({stats['yesterday_date']}): {stats['yesterday_expenses']:.2f} ₽")
+        print("-" * 40)
+        
+        if stats['percent_change'] > 0:
+            print(f"Сегодня вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем вчера")
+        elif stats['percent_change'] < 0:
+            print(f"Сегодня вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем вчера")
+        else:
+            print("Расходы не изменились")
+        
+        input("\nНажмите Enter, чтобы продолжить...")
+
+    def show_week_comparison(self):
+        self.print_header("СРАВНЕНИЕ РАСХОДОВ ПО НЕДЕЛЯМ")
+        
+        stats = self.tracker.get_week_comparison()
+        
+        print(f"Расходы на этой неделе ({stats['current_week_start']} - {stats['current_week_end']}): {stats['current_week_expenses']:.2f} ₽")
+        print(f"Расходы на прошлой неделе ({stats['prev_week_start']} - {stats['prev_week_end']}): {stats['prev_week_expenses']:.2f} ₽")
+        print("-" * 40)
+        
+        if stats['percent_change'] > 0:
+            print(f"На этой неделе вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем на прошлой")
+        elif stats['percent_change'] < 0:
+            print(f"На этой неделе вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем на прошлой")
+        else:
+            print("Расходы не изменились")
+        
+        input("\nНажмите Enter, чтобы продолжить...")
+
+    def show_month_comparison(self):
+        self.print_header("СРАВНЕНИЕ РАСХОДОВ ПО МЕСЯЦАМ")
+        
+        stats = self.tracker.get_month_comparison()
+        
+        print(f"Расходы в этом месяце ({stats['current_month']}): {stats['current_month_expenses']:.2f} ₽")
+        print(f"Расходы в прошлом месяце ({stats['prev_month']}): {stats['prev_month_expenses']:.2f} ₽")
+        print("-" * 40)
+        
+        if stats['percent_change'] > 0:
+            print(f"В этом месяце вы потратили на {stats['percent_change']:.2f}% БОЛЬШЕ, чем в прошлом")
+        elif stats['percent_change'] < 0:
+            print(f"В этом месяце вы потратили на {abs(stats['percent_change']):.2f}% МЕНЬШЕ, чем в прошлом")
+        else:
+            print("Расходы не изменились")
         
         input("\nНажмите Enter, чтобы продолжить...")
 
