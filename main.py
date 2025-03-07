@@ -104,6 +104,36 @@ class FinanceTracker:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
+
+        # Создаем таблицу категорий доходов
+        self.cursor.execute('''
+        CREATE TABLE IF NOT EXISTS income_categories (
+            id INTEGER PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+
+        # Проверяем, есть ли уже категории расходов, если нет - добавляем стандартные
+        self.cursor.execute("SELECT COUNT(*) FROM expense_categories")
+        if self.cursor.fetchone()[0] == 0:
+            default_expense_categories = [
+                "Продукты", "Кафе и рестораны", "Транспорт", "Жилье", 
+                "Коммунальные услуги", "Связь и интернет", "Одежда", 
+                "Развлечения", "Здоровье", "Образование", "Другое"
+            ]
+            for category in default_expense_categories:
+                self.cursor.execute("INSERT INTO expense_categories (name) VALUES (?)", (category,))
+        
+        # Проверяем, есть ли уже категории доходов, если нет - добавляем стандартные
+        self.cursor.execute("SELECT COUNT(*) FROM income_categories")
+        if self.cursor.fetchone()[0] == 0:
+            default_income_categories = [
+                "Зарплата", "Подработка", "Проценты по вкладам", "Дивиденды", 
+                "Подарки", "Возврат долгов", "Продажи", "Другое"
+            ]
+            for category in default_income_categories:
+                self.cursor.execute("INSERT INTO income_categories (name) VALUES (?)", (category,))
         
         self.conn.commit()
     
@@ -1069,6 +1099,53 @@ class FinanceTracker:
     def get_category_by_name(self, name):
         self.cursor.execute("SELECT id, name FROM expense_categories WHERE name = ?", (name,))
         return self.cursor.fetchone()
+    
+    # Методы для работы с категориями доходов
+    def get_income_categories(self):
+        self.cursor.execute("SELECT id, name FROM income_categories ORDER BY name")
+        return self.cursor.fetchall()
+
+    def add_income_category(self, name):
+        try:
+            self.cursor.execute(
+                "INSERT INTO income_categories (name) VALUES (?)",
+                (name,)
+            )
+            self.conn.commit()
+            return True, "Категория дохода успешно добавлена"
+        except sqlite3.IntegrityError:
+            return False, "Категория с таким названием уже существует"
+        except Exception as e:
+            return False, str(e)
+
+    def update_income_category(self, category_id, new_name):
+        try:
+            self.cursor.execute(
+                "UPDATE income_categories SET name = ? WHERE id = ?",
+                (new_name, category_id)
+            )
+            self.conn.commit()
+            return True, "Категория дохода успешно обновлена"
+        except sqlite3.IntegrityError:
+            return False, "Категория с таким названием уже существует"
+        except Exception as e:
+            return False, str(e)
+
+    def delete_income_category(self, category_id):
+        try:
+            self.cursor.execute("DELETE FROM income_categories WHERE id = ?", (category_id,))
+            self.conn.commit()
+            return True, "Категория дохода успешно удалена"
+        except Exception as e:
+            return False, str(e)
+
+    def get_income_category_by_id(self, category_id):
+        self.cursor.execute("SELECT id, name FROM income_categories WHERE id = ?", (category_id,))
+        return self.cursor.fetchone()
+
+    def get_income_category_by_name(self, name):
+        self.cursor.execute("SELECT id, name FROM income_categories WHERE name = ?", (name,))
+        return self.cursor.fetchone()
 
 
 # Класс для управления интерфейсом
@@ -1336,11 +1413,11 @@ class ConsoleUI:
         amount = self.input_number("Введите сумму дохода: ", 0.01)
         description = input("Введите описание: ")
         
-        category = self.select_category("Выберите категорию дохода:")
+        category = self.select_income_category("Выберите категорию дохода:")
         
         success, message = self.tracker.add_income(account_id, amount, description, category)
         self.print_message(message, success)
-    
+
     def add_expense(self):
         self.print_header("ДОБАВЛЕНИЕ РАСХОДА")
         account_id = self.select_account("С какого счёта списать расход:")
@@ -1351,7 +1428,7 @@ class ConsoleUI:
         amount = self.input_number("Введите сумму расхода: ", 0.01)
         description = input("Введите описание: ")
         
-        category = self.select_category("Выберите категорию расхода:")
+        category = self.select_expense_category("Выберите категорию расхода:")
         
         success, message = self.tracker.add_expense(account_id, amount, description, category)
         self.print_message(message, success)
@@ -1474,11 +1551,14 @@ class ConsoleUI:
         if not new_description:
             new_description = None
         
-        # Заменяем запрос новой категории на выбор из списка
+        # Заменяем запрос новой категории на выбор из списка соответствующего типа
         print("Текущая категория:", category if category else "Не указана")
         change_category = input("Изменить категорию? (д/н): ")
         if change_category.lower() in ['д', 'y', 'да', 'yes']:
-            new_category = self.select_category("Выберите новую категорию:")
+            if is_expense:
+                new_category = self.select_expense_category("Выберите новую категорию расхода:")
+            else:
+                new_category = self.select_income_category("Выберите новую категорию дохода:")
         else:
             new_category = None
         
@@ -2511,6 +2591,22 @@ class ConsoleUI:
     def categories_menu(self):
         while True:
             self.print_header("УПРАВЛЕНИЕ КАТЕГОРИЯМИ")
+            print("1. 💸 Категории расходов")
+            print("2. 💰 Категории доходов")
+            print("0. 🔙 Назад")
+            
+            choice = self.input_number("Выберите тип категорий: ", 0, 2)
+            
+            if choice == 1:
+                self.expense_categories_menu()
+            elif choice == 2:
+                self.income_categories_menu()
+            elif choice == 0:
+                break
+
+    def expense_categories_menu(self):
+        while True:
+            self.print_header("УПРАВЛЕНИЕ КАТЕГОРИЯМИ РАСХОДОВ")
             print("1. 👁️ Просмотр категорий")
             print("2. ➕ Добавить категорию")
             print("3. ✏️ Редактировать категорию")
@@ -2520,15 +2616,201 @@ class ConsoleUI:
             choice = self.input_number("Выберите пункт меню: ", 0, 4)
             
             if choice == 1:
-                self.show_categories()
+                self.show_expense_categories()
             elif choice == 2:
-                self.add_category()
+                self.add_expense_category()
             elif choice == 3:
-                self.edit_category()
+                self.edit_expense_category()
             elif choice == 4:
-                self.delete_category()
+                self.delete_expense_category()
             elif choice == 0:
                 break
+
+    def income_categories_menu(self):
+        while True:
+            self.print_header("УПРАВЛЕНИЕ КАТЕГОРИЯМИ ДОХОДОВ")
+            print("1. 👁️ Просмотр категорий")
+            print("2. ➕ Добавить категорию")
+            print("3. ✏️ Редактировать категорию")
+            print("4. ❌ Удалить категорию")
+            print("0. 🔙 Назад")
+            
+            choice = self.input_number("Выберите пункт меню: ", 0, 4)
+            
+            if choice == 1:
+                self.show_income_categories()
+            elif choice == 2:
+                self.add_income_category()
+            elif choice == 3:
+                self.edit_income_category()
+            elif choice == 4:
+                self.delete_income_category()
+            elif choice == 0:
+                break
+
+    def show_expense_categories(self):
+        self.print_header("СПИСОК КАТЕГОРИЙ РАСХОДОВ")
+        categories = self.tracker.get_categories()
+        
+        if not categories:
+            print("📭 У вас пока нет категорий расходов")
+        else:
+            for cat in categories:
+                cat_id, name = cat
+                print(f"{cat_id}. 💸 {name}")
+        
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
+
+    def add_expense_category(self):
+        self.print_header("ДОБАВЛЕНИЕ КАТЕГОРИИ РАСХОДОВ")
+        name = input("Введите название категории расходов: ")
+        
+        if not name:
+            self.print_message("Название категории не может быть пустым", False)
+            return
+        
+        success, message = self.tracker.add_category(name)
+        self.print_message(message, success)
+
+    def edit_expense_category(self):
+        self.print_header("РЕДАКТИРОВАНИЕ КАТЕГОРИИ РАСХОДОВ")
+        categories = self.tracker.get_categories()
+        
+        if not categories:
+            self.print_message("У вас пока нет категорий расходов", False)
+            return
+        
+        print("Выберите категорию для редактирования:")
+        for cat in categories:
+            cat_id, name = cat
+            print(f"{cat_id}. 💸 {name}")
+        
+        category_id = int(self.input_number("Введите ID категории: ", 1))
+        
+        # Проверяем, существует ли категория
+        selected_category = self.tracker.get_category_by_id(category_id)
+        if not selected_category:
+            self.print_message("Категория не найдена", False)
+            return
+        
+        new_name = input(f"Введите новое название (текущее: {selected_category[1]}): ")
+        
+        if not new_name:
+            self.print_message("Название категории не может быть пустым", False)
+            return
+        
+        success, message = self.tracker.update_category(category_id, new_name)
+        self.print_message(message, success)
+
+    def delete_expense_category(self):
+        self.print_header("УДАЛЕНИЕ КАТЕГОРИИ РАСХОДОВ")
+        categories = self.tracker.get_categories()
+        
+        if not categories:
+            self.print_message("У вас пока нет категорий расходов", False)
+            return
+        
+        print("Выберите категорию для удаления:")
+        for cat in categories:
+            cat_id, name = cat
+            print(f"{cat_id}. 💸 {name}")
+        
+        category_id = int(self.input_number("Введите ID категории: ", 1))
+        
+        # Проверяем, существует ли категория
+        selected_category = self.tracker.get_category_by_id(category_id)
+        if not selected_category:
+            self.print_message("Категория не найдена", False)
+            return
+        
+        if not self.input_yes_no(f"Вы уверены, что хотите удалить категорию '{selected_category[1]}'? (д/н): "):
+            self.print_message("Удаление отменено")
+            return
+        
+        success, message = self.tracker.delete_category(category_id)
+        self.print_message(message, success)
+
+    def show_income_categories(self):
+        self.print_header("СПИСОК КАТЕГОРИЙ ДОХОДОВ")
+        categories = self.tracker.get_income_categories()
+        
+        if not categories:
+            print("📭 У вас пока нет категорий доходов")
+        else:
+            for cat in categories:
+                cat_id, name = cat
+                print(f"{cat_id}. 💰 {name}")
+        
+        input("\n👉 Нажмите Enter, чтобы продолжить...")
+
+    def add_income_category(self):
+        self.print_header("ДОБАВЛЕНИЕ КАТЕГОРИИ ДОХОДОВ")
+        name = input("Введите название категории доходов: ")
+        
+        if not name:
+            self.print_message("Название категории не может быть пустым", False)
+            return
+        
+        success, message = self.tracker.add_income_category(name)
+        self.print_message(message, success)
+
+    def edit_income_category(self):
+        self.print_header("РЕДАКТИРОВАНИЕ КАТЕГОРИИ ДОХОДОВ")
+        categories = self.tracker.get_income_categories()
+        
+        if not categories:
+            self.print_message("У вас пока нет категорий доходов", False)
+            return
+        
+        print("Выберите категорию для редактирования:")
+        for cat in categories:
+            cat_id, name = cat
+            print(f"{cat_id}. 💰 {name}")
+        
+        category_id = int(self.input_number("Введите ID категории: ", 1))
+        
+        # Проверяем, существует ли категория
+        selected_category = self.tracker.get_income_category_by_id(category_id)
+        if not selected_category:
+            self.print_message("Категория не найдена", False)
+            return
+        
+        new_name = input(f"Введите новое название (текущее: {selected_category[1]}): ")
+        
+        if not new_name:
+            self.print_message("Название категории не может быть пустым", False)
+            return
+        
+        success, message = self.tracker.update_income_category(category_id, new_name)
+        self.print_message(message, success)
+
+    def delete_income_category(self):
+        self.print_header("УДАЛЕНИЕ КАТЕГОРИИ ДОХОДОВ")
+        categories = self.tracker.get_income_categories()
+        
+        if not categories:
+            self.print_message("У вас пока нет категорий доходов", False)
+            return
+        
+        print("Выберите категорию для удаления:")
+        for cat in categories:
+            cat_id, name = cat
+            print(f"{cat_id}. 💰 {name}")
+        
+        category_id = int(self.input_number("Введите ID категории: ", 1))
+        
+        # Проверяем, существует ли категория
+        selected_category = self.tracker.get_income_category_by_id(category_id)
+        if not selected_category:
+            self.print_message("Категория не найдена", False)
+            return
+        
+        if not self.input_yes_no(f"Вы уверены, что хотите удалить категорию '{selected_category[1]}'? (д/н): "):
+            self.print_message("Удаление отменено")
+            return
+        
+        success, message = self.tracker.delete_income_category(category_id)
+        self.print_message(message, success)
 
     def show_categories(self):
         self.print_header("СПИСОК КАТЕГОРИЙ")
@@ -2612,10 +2894,10 @@ class ConsoleUI:
         success, message = self.tracker.delete_category(category_id)
         self.print_message(message, success)
 
-    def select_category(self, prompt="Выберите категорию:"):
-        categories = self.tracker.get_categories()
+    def select_expense_category(self, prompt="Выберите категорию расхода:"):
+        categories = self.tracker.get_categories()  # Это для расходов
         if not categories:
-            print("Нет доступных категорий")
+            print("Нет доступных категорий расходов")
             return None
         
         print(prompt)
@@ -2626,11 +2908,36 @@ class ConsoleUI:
         choice = self.input_number("Введите номер категории: ", 0, len(categories))
         
         if choice == 0:
-            new_category = input("Введите название новой категории: ")
+            new_category = input("Введите название новой категории расхода: ")
             if new_category:
                 success, _ = self.tracker.add_category(new_category)
                 if success:
                     category = self.tracker.get_category_by_name(new_category)
+                    return category[1] if category else new_category
+                return new_category
+            return ""
+        
+        return categories[int(choice) - 1][1]  # Возвращаем название выбранной категории
+
+    def select_income_category(self, prompt="Выберите категорию дохода:"):
+        categories = self.tracker.get_income_categories()  # Для доходов
+        if not categories:
+            print("Нет доступных категорий доходов")
+            return None
+        
+        print(prompt)
+        for i, category in enumerate(categories, 1):
+            print(f"{i}. {category[1]}")
+        print("0. Ввести новую категорию")
+        
+        choice = self.input_number("Введите номер категории: ", 0, len(categories))
+        
+        if choice == 0:
+            new_category = input("Введите название новой категории дохода: ")
+            if new_category:
+                success, _ = self.tracker.add_income_category(new_category)
+                if success:
+                    category = self.tracker.get_income_category_by_name(new_category)
                     return category[1] if category else new_category
                 return new_category
             return ""
