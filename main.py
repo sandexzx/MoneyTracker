@@ -1547,7 +1547,7 @@ class ConsoleUI:
             for p in payments:
                 payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
                 status = "Выполнен" if completed else "Ожидает"
-                date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+                date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
                 category_str = f"[{category}]" if category else ""
                 print(f"{payment_id}. {description} {category_str} - {amount} ₽ с '{account_name}' (дата: {date}) - {status}")
         
@@ -1596,7 +1596,7 @@ class ConsoleUI:
         print("Выберите платеж для выполнения:")
         for p in payments:
             payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
-            date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+            date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
             category_str = f"[{category}]" if category else ""
             print(f"{payment_id}. {description} {category_str} - {amount} ₽ с '{account_name}' (дата: {date})")
         
@@ -1633,7 +1633,7 @@ class ConsoleUI:
         print("Выберите платеж для удаления:")
         for p in payments:
             payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
-            date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+            date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
             print(f"{payment_id}. {description} - {amount} ₽ с '{account_name}' (дата: {date})")
         
         payment_id = int(self.input_number("Введите ID платежа: ", 1))
