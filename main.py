@@ -972,9 +972,7 @@ class ConsoleUI:
             return
         
         account = self.tracker.get_account_by_id(account_id)
-        confirm = input(f"Вы уверены, что хотите удалить счёт '{account[1]}' с балансом {account[2]} ₽? (д/н): ")
-        
-        if confirm.lower() not in ['д', 'y', 'да', 'yes']:
+        if not self.input_yes_no(f"Вы уверены, что хотите удалить счёт '{account[1]}' с балансом {account[2]} ₽? (д/н): "):
             self.print_message("Удаление отменено")
             return
         
@@ -1190,8 +1188,7 @@ class ConsoleUI:
         print(f"Описание: {new_description if new_description is not None else description}")
         print(f"Категория: {new_category if new_category is not None else category}")
         
-        confirm = input("\nСохранить изменения? (д/н): ")
-        if confirm.lower() not in ['д', 'y', 'да', 'yes']:
+        if not self.input_yes_no("\nСохранить изменения? (д/н): "):
             self.print_message("Редактирование отменено")
             return
         
@@ -1231,8 +1228,7 @@ class ConsoleUI:
         print(f"Вы собираетесь удалить операцию:")
         print(f"{formatted_date} | {account_name} | {sign}{amount} ₽ | {description}")
         
-        confirm = input("\nВы уверены, что хотите удалить эту операцию? (д/н): ")
-        if confirm.lower() not in ['д', 'y', 'да', 'yes']:
+        if not self.input_yes_no("\nВы уверены, что хотите удалить эту операцию? (д/н): "):
             self.print_message("Удаление отменено")
             return
         
@@ -1483,9 +1479,7 @@ class ConsoleUI:
         
         payment_id = int(self.input_number("Введите ID платежа: ", 1))
         
-        confirm = input(f"Вы уверены, что хотите удалить этот платеж? (д/н): ")
-        
-        if confirm.lower() not in ['д', 'y', 'да', 'yes']:
+        if not self.input_yes_no(f"Вы уверены, что хотите удалить этот платеж? (д/н): "):
             self.print_message("Удаление отменено")
             return
         
@@ -1613,9 +1607,7 @@ class ConsoleUI:
             self.print_message("Платеж не найден или уже выполнен", False)
             return
         
-        confirm = input(f"Вы уверены, что хотите выполнить этот платеж сейчас? (д/н): ")
-        
-        if confirm.lower() not in ['д', 'y', 'да', 'yes']:
+        if not self.input_yes_no(f"Вы уверены, что хотите выполнить этот платеж сейчас? (д/н): "):
             self.print_message("Выполнение отменено")
             return
         
@@ -1638,9 +1630,7 @@ class ConsoleUI:
         
         payment_id = int(self.input_number("Введите ID платежа: ", 1))
         
-        confirm = input(f"Вы уверены, что хотите удалить этот запланированный платеж? (д/н): ")
-        
-        if confirm.lower() not in ['д', 'y', 'да', 'yes']:
+        if not self.input_yes_no(f"Вы уверены, что хотите удалить этот запланированный платеж? (д/н): "):
             self.print_message("Удаление отменено")
             return
         
@@ -1848,6 +1838,18 @@ class ConsoleUI:
             print("Расходы не изменились")
         
         input("\nНажмите Enter, чтобы продолжить...")
+
+    def input_yes_no(self, prompt):
+        """
+        Запрашивает у пользователя ответ да/нет.
+        Если пользователь нажал Enter без ввода, считаем это как "да".
+        """
+        response = input(prompt)
+        # Пустая строка (просто Enter) считается как "да"
+        if response == "":
+            return True
+        # В противном случае проверяем введённый ответ
+        return response.lower() in ['д', 'y', 'да', 'yes']
 
 
 # Функция для запуска приложения
