@@ -519,6 +519,38 @@ class FinanceTracker:
         self.cursor.execute(query)
         return self.cursor.fetchall()
     
+    def update_planned_payment(self, payment_id, account_id=None, amount=None, description=None, category=None, planned_date=None):
+        """Обновляет запланированный платеж"""
+        self.cursor.execute(
+            "SELECT account_id, amount, description, category, planned_date, completed FROM planned_payments WHERE id = ?",
+            (payment_id,)
+        )
+        payment = self.cursor.fetchone()
+        
+        if not payment:
+            return False, "Платеж не найден"
+        
+        if payment[5] == 1:
+            return False, "Нельзя редактировать выполненный платеж"
+        
+        new_account_id = account_id if account_id is not None else payment[0]
+        new_amount = amount if amount is not None else payment[1]
+        new_description = description if description is not None else payment[2]
+        new_category = category if category is not None else payment[3]
+        new_planned_date = planned_date if planned_date is not None else payment[4]
+        
+        try:
+            self.cursor.execute(
+                """UPDATE planned_payments 
+                SET account_id = ?, amount = ?, description = ?, category = ?, planned_date = ?
+                WHERE id = ?""",
+                (new_account_id, new_amount, new_description, new_category, new_planned_date, payment_id)
+            )
+            self.conn.commit()
+            return True, "Запланированный платеж обновлен"
+        except Exception as e:
+            return False, str(e)
+    
     def execute_planned_payment(self, payment_id):
         self.cursor.execute(
             "SELECT account_id, amount, description, category, completed FROM planned_payments WHERE id = ?",
@@ -1685,19 +1717,22 @@ class ConsoleUI:
             self.print_header("ЗАПЛАНИРОВАННЫЕ ПЛАТЕЖИ")
             print("1. 👁️ Просмотр запланированных платежей")
             print("2. ➕ Добавить запланированный платеж")
-            print("3. ✅ Выполнить платеж")
-            print("4. ❌ Удалить запланированный платеж")
+            print("3. ✏️ Редактировать запланированный платеж") 
+            print("4. ✅ Выполнить платеж")
+            print("5. ❌ Удалить запланированный платеж")
             print("0. 🔙 Назад")
             
-            choice = self.input_number("Выберите пункт меню: ", 0, 4)
+            choice = self.input_number("Выберите пункт меню: ", 0, 5) 
             
             if choice == 1:
                 self.show_planned_payments()
             elif choice == 2:
                 self.add_planned_payment()
             elif choice == 3:
-                self.execute_planned_payment()
+                self.edit_planned_payment()
             elif choice == 4:
+                self.execute_planned_payment()
+            elif choice == 5:
                 self.delete_planned_payment()
             elif choice == 0:
                 break
@@ -1756,6 +1791,86 @@ class ConsoleUI:
             category = cat_choice
         
         success, message = self.tracker.add_planned_payment(account_id, amount, description, planned_date, category)
+        self.print_message(message, success)
+
+    def edit_planned_payment(self):
+        self.print_header("РЕДАКТИРОВАНИЕ ЗАПЛАНИРОВАННОГО ПЛАТЕЖА")
+        payments = self.tracker.get_planned_payments(True)  # Только активные
+        
+        if not payments:
+            self.print_message("У вас нет активных запланированных платежей", False)
+            return
+        
+        print("Выберите платеж для редактирования:")
+        for p in payments:
+            payment_id, account_id, account_name, amount, description, category, planned_date, completed = p
+            date = datetime.datetime.strptime(planned_date, "%Y-%m-%d").strftime("%d.%m.%y")
+            category_str = f"[{category}]" if category else ""
+            print(f"{payment_id}. {description} {category_str} - {amount} ₽ с '{account_name}' (дата: {date})")
+        
+        payment_id = int(self.input_number("Введите ID платежа: ", 1))
+        
+        # Проверяем, что платеж существует и активен
+        selected_payment = None
+        for p in payments:
+            if p[0] == payment_id:
+                selected_payment = p
+                break
+        
+        if not selected_payment:
+            self.print_message("Платеж не найден или уже выполнен", False)
+            return
+        
+        payment_id, old_account_id, old_account_name, old_amount, old_description, old_category, old_planned_date, _ = selected_payment
+        
+        print(f"\nРедактирование платежа: {old_description}")
+        
+        # Запрашиваем новые значения или оставляем старые
+        new_account_id = None
+        change_account = input("Изменить счёт? (д/н): ")
+        if change_account.lower() in ['д', 'y', 'да', 'yes']:
+            new_account_id = self.select_account()
+        
+        new_description = input(f"Введите новое описание (или оставьте пустым для '{old_description}'): ")
+        if not new_description:
+            new_description = None
+        
+        new_amount_str = input(f"Введите новую сумму (или оставьте пустым для '{old_amount}'): ")
+        new_amount = float(new_amount_str) if new_amount_str else None
+        
+        change_category = input("Изменить категорию? (д/н): ")
+        if change_category.lower() in ['д', 'y', 'да', 'yes']:
+            new_category = self.select_category("Выберите новую категорию:")
+        else:
+            new_category = None
+        
+        change_date = input("Изменить дату платежа? (д/н): ")
+        if change_date.lower() in ['д', 'y', 'да', 'yes']:
+            new_planned_date = self.input_date("Введите новую дату платежа")
+        else:
+            new_planned_date = None
+        
+        # Подтверждение
+        print("\nНовые данные:")
+        print(f"Счёт: {self.tracker.get_account_by_id(new_account_id)[1] if new_account_id else old_account_name}")
+        print(f"Описание: {new_description if new_description is not None else old_description}")
+        print(f"Сумма: {new_amount if new_amount is not None else old_amount} ₽")
+        print(f"Категория: {new_category if new_category is not None else old_category}")
+        print(f"Дата: {datetime.datetime.strptime(new_planned_date, '%Y-%m-%d').strftime('%d.%m.%Y') if new_planned_date else datetime.datetime.strptime(old_planned_date, '%Y-%m-%d').strftime('%d.%m.%Y')}")
+        
+        if not self.input_yes_no("\nСохранить изменения? (д/н): "):
+            self.print_message("Редактирование отменено")
+            return
+        
+        success, message = self.tracker.update_planned_payment(
+            payment_id, 
+            account_id=new_account_id,
+            amount=new_amount,
+            description=new_description,
+            category=new_category,
+            planned_date=new_planned_date
+        )
+        
         self.print_message(message, success)
     
     def execute_planned_payment(self):
