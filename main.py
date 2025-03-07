@@ -317,6 +317,37 @@ class FinanceTracker:
             return True, "Перевод успешно выполнен"
         except Exception as e:
             return False, str(e)
+        
+    def get_transfers(self, account_id=None, start_date=None, end_date=None, limit=None):
+        query = """
+            SELECT t.id, t.from_account_id, fa.name as from_name, t.to_account_id, 
+                ta.name as to_name, t.amount, t.description, t.transfer_date
+            FROM transfers t
+            JOIN accounts fa ON t.from_account_id = fa.id
+            JOIN accounts ta ON t.to_account_id = ta.id
+            WHERE 1=1
+        """
+        params = []
+        
+        if account_id:
+            query += " AND (t.from_account_id = ? OR t.to_account_id = ?)"
+            params.extend([account_id, account_id])
+        
+        if start_date:
+            query += " AND DATE(t.transfer_date) >= DATE(?)"
+            params.append(start_date)
+        
+        if end_date:
+            query += " AND DATE(t.transfer_date) <= DATE(?)"
+            params.append(end_date)
+        
+        query += " ORDER BY t.transfer_date DESC"
+        
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+        
+        self.cursor.execute(query, params)
+        return self.cursor.fetchall()
     
     # Методы для работы с регулярными платежами
     def add_recurring_payment(self, account_id, amount, description, payment_day, category=""):
@@ -1073,6 +1104,22 @@ class ConsoleUI:
         self.print_message(message, success)
     
     def transfer_menu(self):
+        while True:
+            self.print_header("ПЕРЕВОДЫ МЕЖДУ СЧЕТАМИ")
+            print("1. Сделать перевод")
+            print("2. История переводов")
+            print("0. Назад")
+            
+            choice = self.input_number("Выберите пункт меню: ", 0, 2)
+            
+            if choice == 1:
+                self.make_transfer()
+            elif choice == 2:
+                self.show_transfers_history()
+            elif choice == 0:
+                break
+
+    def make_transfer(self):
         self.print_header("ПЕРЕВОД МЕЖДУ СЧЕТАМИ")
         
         accounts = self.tracker.get_accounts()
@@ -1111,6 +1158,47 @@ class ConsoleUI:
         
         success, message = self.tracker.transfer_money(from_account_id, to_account_id, amount, description)
         self.print_message(message, success)
+
+    def show_transfers_history(self):
+        self.print_header("ИСТОРИЯ ПЕРЕВОДОВ")
+        
+        print("Фильтры:")
+        print("1. Все переводы")
+        print("2. По счёту")
+        print("3. По периоду")
+        print("4. Комбинированный фильтр")
+        
+        choice = self.input_number("Выберите фильтр: ", 1, 4)
+        
+        account_id = None
+        start_date = None
+        end_date = None
+        
+        if choice == 2 or choice == 4:
+            account_id = self.select_account("Выберите счёт для фильтрации:")
+            if account_id == 0:  # Выбрана опция "Назад"
+                return
+        
+        if choice == 3 or choice == 4:
+            start_date = self.input_date("Введите начальную дату")
+            end_date = self.input_date("Введите конечную дату")
+        
+        transfers = self.tracker.get_transfers(account_id, start_date, end_date)
+        
+        if not transfers:
+            print("\nНет переводов, соответствующих фильтрам")
+            input("\nНажмите Enter, чтобы продолжить...")
+            return
+        
+        self.print_header("СПИСОК ПЕРЕВОДОВ")
+        
+        for t in transfers:
+            transfer_id, from_id, from_name, to_id, to_name, amount, description, date = t
+            date_formatted = datetime.datetime.strptime(date, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
+            desc = f" - {description}" if description else ""
+            print(f"{date_formatted} | {from_name} → {to_name} | {amount} ₽{desc}")
+        
+        input("\nНажмите Enter, чтобы продолжить...")
     
     def recurring_payments_menu(self):
         while True:
