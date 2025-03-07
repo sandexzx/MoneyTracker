@@ -190,6 +190,93 @@ class FinanceTracker:
             return True, "Расход успешно добавлен"
         except Exception as e:
             return False, str(e)
+        
+    def get_transaction_by_id(self, transaction_id):
+        self.cursor.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,))
+        return self.cursor.fetchone()
+
+    def delete_transaction(self, transaction_id):
+        # Находим транзакцию
+        transaction = self.get_transaction_by_id(transaction_id)
+        if not transaction:
+            return False, "Операция не найдена"
+        
+        account_id = transaction[1]
+        amount = transaction[2]
+        
+        # Получаем данные счета
+        account = self.get_account_by_id(account_id)
+        if not account:
+            return False, "Счёт не найден"
+        
+        try:
+            # Отменяем влияние транзакции на баланс счета
+            new_balance = account[2] - amount  # Вычитаем сумму операции (для дохода она положительная, для расхода - отрицательная)
+            self.cursor.execute(
+                "UPDATE accounts SET balance = ? WHERE id = ?",
+                (new_balance, account_id)
+            )
+            
+            # Удаляем транзакцию
+            self.cursor.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
+            
+            self.conn.commit()
+            return True, "Операция успешно удалена"
+        except Exception as e:
+            return False, str(e)
+
+    def update_transaction(self, transaction_id, amount=None, description=None, category=None):
+        # Находим транзакцию
+        transaction = self.get_transaction_by_id(transaction_id)
+        if not transaction:
+            return False, "Операция не найдена"
+        
+        account_id = transaction[1]
+        old_amount = transaction[2]
+        
+        # Если новая сумма не указана, используем старую
+        new_amount = amount if amount is not None else old_amount
+        
+        # Получаем данные счета
+        account = self.get_account_by_id(account_id)
+        if not account:
+            return False, "Счёт не найден"
+        
+        try:
+            # Обновляем баланс счета
+            amount_diff = new_amount - old_amount
+            new_balance = account[2] + amount_diff
+            
+            # Проверка на отрицательный баланс для расходов
+            if transaction[6] == "expense" and amount is not None:
+                # Для расхода, amount в БД отрицательный, а на входе в функцию положительный
+                if account[2] + old_amount < amount:  # old_amount < 0, поэтому +old_amount
+                    return False, "Недостаточно средств"
+                # Корректируем new_amount, чтобы для расхода было отрицательное значение
+                if new_amount > 0:
+                    new_amount = -new_amount
+            
+            # Обновляем баланс
+            self.cursor.execute(
+                "UPDATE accounts SET balance = ? WHERE id = ?",
+                (new_balance, account_id)
+            )
+            
+            # Обновляем транзакцию
+            new_description = description if description is not None else transaction[3]
+            new_category = category if category is not None else transaction[4]
+            
+            self.cursor.execute(
+                """UPDATE transactions 
+                SET amount = ?, description = ?, category = ?
+                WHERE id = ?""",
+                (new_amount, new_description, new_category, transaction_id)
+            )
+            
+            self.conn.commit()
+            return True, "Операция успешно обновлена"
+        except Exception as e:
+            return False, str(e)
     
     # Методы для перевода между счетами
     def transfer_money(self, from_account_id, to_account_id, amount, description=""):
@@ -431,7 +518,7 @@ class FinanceTracker:
         return True, "Запланированный платеж удален"
     
     # Методы для получения статистики/отчетов
-    def get_transactions(self, account_id=None, start_date=None, end_date=None, transaction_type=None):
+    def get_transactions(self, account_id=None, start_date=None, end_date=None, transaction_type=None, limit=None):
         query = """
             SELECT t.id, t.account_id, a.name, t.amount, t.description, t.category, t.transaction_date, t.transaction_type
             FROM transactions t
@@ -457,6 +544,9 @@ class FinanceTracker:
             params.append(transaction_type)
         
         query += " ORDER BY t.transaction_date DESC"
+        
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
         
         self.cursor.execute(query, params)
         return self.cursor.fetchall()
@@ -727,9 +817,11 @@ class ConsoleUI:
             print("1. Добавить доход")
             print("2. Добавить расход")
             print("3. Просмотр операций")
+            print("4. Редактировать операцию")
+            print("5. Удалить операцию")
             print("0. Назад")
             
-            choice = self.input_number("Выберите пункт меню: ", 0, 3)
+            choice = self.input_number("Выберите пункт меню: ", 0, 5)
             
             if choice == 1:
                 self.add_income()
@@ -737,6 +829,10 @@ class ConsoleUI:
                 self.add_expense()
             elif choice == 3:
                 self.show_transactions()
+            elif choice == 4:
+                self.edit_transaction()
+            elif choice == 5:
+                self.delete_transaction()
             elif choice == 0:
                 break
     
@@ -846,6 +942,132 @@ class ConsoleUI:
             print(f"{date} | {t[2]} | {sign}{amount} ₽ | {t[4]} {category}")
         
         input("\nНажмите Enter, чтобы продолжить...")
+
+    def select_transaction(self):
+        self.print_header("ВЫБОР ОПЕРАЦИИ")
+        
+        # Получаем список последних операций
+        transactions = self.tracker.get_transactions(limit=10)
+        
+        if not transactions:
+            self.print_message("Нет доступных операций", False)
+            return None
+        
+        print("Последние операции:")
+        for i, t in enumerate(transactions, 1):
+            transaction_id, account_id, account_name, amount, description, category, date, transaction_type = t
+            sign = "+" if amount > 0 else ""
+            category_str = f"[{category}]" if category else ""
+            formatted_date = datetime.datetime.strptime(date, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
+            print(f"{i}. {formatted_date} | {account_name} | {sign}{amount} ₽ | {description} {category_str}")
+        
+        print("\n0. Поиск по номеру ID")
+        
+        choice = self.input_number("Выберите операцию или введите 0 для поиска: ", 0, len(transactions))
+        
+        if choice == 0:
+            transaction_id = self.input_number("Введите ID операции: ", 1)
+            return transaction_id
+        else:
+            return transactions[int(choice) - 1][0]  # Возвращаем ID выбранной операции
+
+    def edit_transaction(self):
+        self.print_header("РЕДАКТИРОВАНИЕ ОПЕРАЦИИ")
+        
+        transaction_id = self.select_transaction()
+        if not transaction_id:
+            return
+        
+        # Получаем информацию о транзакции
+        self.tracker.cursor.execute(
+            "SELECT t.id, t.account_id, a.name, t.amount, t.description, t.category, t.transaction_date, t.transaction_type " +
+            "FROM transactions t JOIN accounts a ON t.account_id = a.id " +
+            "WHERE t.id = ?", (transaction_id,)
+        )
+        transaction = self.tracker.cursor.fetchone()
+        
+        if not transaction:
+            self.print_message("Операция не найдена", False)
+            return
+        
+        transaction_id, account_id, account_name, amount, description, category, date, transaction_type = transaction
+        is_expense = transaction_type == "expense"
+        
+        # Отображаем текущие значения
+        print(f"Редактирование операции #{transaction_id}")
+        print(f"Счёт: {account_name}")
+        print(f"Тип: {'Расход' if is_expense else 'Доход'}")
+        print(f"Сумма: {abs(amount)} ₽")
+        print(f"Описание: {description}")
+        print(f"Категория: {category}")
+        print(f"Дата: {datetime.datetime.strptime(date, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M')}")
+        
+        # Запрашиваем новые значения
+        new_amount_str = input(f"Введите новую сумму (или оставьте пустым для {abs(amount)}): ")
+        new_amount = float(new_amount_str) if new_amount_str else None
+        
+        new_description = input(f"Введите новое описание (или оставьте пустым): ")
+        if not new_description:
+            new_description = None
+        
+        new_category = input(f"Введите новую категорию (или оставьте пустым): ")
+        if not new_category:
+            new_category = None
+        
+        # Подтверждение
+        print("\nНовые данные:")
+        print(f"Сумма: {new_amount if new_amount is not None else abs(amount)} ₽")
+        print(f"Описание: {new_description if new_description is not None else description}")
+        print(f"Категория: {new_category if new_category is not None else category}")
+        
+        confirm = input("\nСохранить изменения? (д/н): ")
+        if confirm.lower() not in ['д', 'y', 'да', 'yes']:
+            self.print_message("Редактирование отменено")
+            return
+        
+        success, message = self.tracker.update_transaction(
+            transaction_id, 
+            amount=-new_amount if is_expense and new_amount is not None else new_amount,
+            description=new_description,
+            category=new_category
+        )
+        
+        self.print_message(message, success)
+
+    def delete_transaction(self):
+        self.print_header("УДАЛЕНИЕ ОПЕРАЦИИ")
+        
+        transaction_id = self.select_transaction()
+        if not transaction_id:
+            return
+        
+        # Получаем информацию о транзакции
+        self.tracker.cursor.execute(
+            "SELECT t.id, a.name, t.amount, t.description, t.transaction_date " +
+            "FROM transactions t JOIN accounts a ON t.account_id = a.id " +
+            "WHERE t.id = ?", (transaction_id,)
+        )
+        transaction = self.tracker.cursor.fetchone()
+        
+        if not transaction:
+            self.print_message("Операция не найдена", False)
+            return
+        
+        transaction_id, account_name, amount, description, date = transaction
+        
+        # Отображаем информацию и запрашиваем подтверждение
+        formatted_date = datetime.datetime.strptime(date, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
+        sign = "+" if amount > 0 else ""
+        print(f"Вы собираетесь удалить операцию:")
+        print(f"{formatted_date} | {account_name} | {sign}{amount} ₽ | {description}")
+        
+        confirm = input("\nВы уверены, что хотите удалить эту операцию? (д/н): ")
+        if confirm.lower() not in ['д', 'y', 'да', 'yes']:
+            self.print_message("Удаление отменено")
+            return
+        
+        success, message = self.tracker.delete_transaction(transaction_id)
+        self.print_message(message, success)
     
     def transfer_menu(self):
         self.print_header("ПЕРЕВОД МЕЖДУ СЧЕТАМИ")
